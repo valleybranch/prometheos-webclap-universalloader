@@ -90,6 +90,15 @@ static const char *g_features_synth[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PL
 static const char *g_features_effect[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL};
 static clap_plugin_descriptor_t g_clap_desc;
 
+static int asciiCaseCmp(const char *a, const char *b) {
+    for (;;) {
+        unsigned char ac = (unsigned char)*a++, bc = (unsigned char)*b++;
+        if (ac >= 'A' && ac <= 'Z') ac = (unsigned char)(ac + ('a' - 'A'));
+        if (bc >= 'A' && bc <= 'Z') bc = (unsigned char)(bc + ('a' - 'A'));
+        if (ac != bc || !ac || !bc) return (int)ac - (int)bc;
+    }
+}
+
 static void copyField(char *dst, size_t cap, const char *src) {
     size_t n = strlen(src);
     if (n >= cap) n = cap - 1;
@@ -140,10 +149,10 @@ static bool readDescriptor(const char *bundle) {
             if (!tab1 || !tab2) { fclose(f); return false; }
             *tab1 = 0; *tab2 = 0;
             if (!value[0] || strchr(value, '/') || strchr(value, '\\') || strchr(value, ':') ||
-                strlen(value) < 4 || _stricmp(value + strlen(value) - 4, ".dll") || !_stricmp(value, "plugin.dll") ||
+                strlen(value) < 4 || asciiCaseCmp(value + strlen(value) - 4, ".dll") || !asciiCaseCmp(value, "plugin.dll") ||
                 strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15)) { fclose(f); return false; }
             for (uint32_t i = 0; i < g_desc.dependencyCount; ++i)
-                if (!_stricmp(g_desc.dependencies[i].name, value)) { fclose(f); return false; }
+                if (!asciiCaseCmp(g_desc.dependencies[i].name, value)) { fclose(f); return false; }
             vl_dependency_info *d = &g_desc.dependencies[g_desc.dependencyCount++];
             copyField(d->name, sizeof d->name, value);
             copyField(d->sha256, sizeof d->sha256, tab1 + 1);
