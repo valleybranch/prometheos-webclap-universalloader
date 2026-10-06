@@ -18,9 +18,18 @@ static bool contains(const std::vector<std::string> &items, const char *name) {
     return false;
 }
 
-int main() {
+int main(int argc, char **argv) {
     ImportProbe probe;
     std::string error;
+
+    if (argc == 3 && std::strcmp(argv[1], "--json") == 0) {
+        if (!probePeImports(argv[2], probe, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 2;
+        }
+        std::puts(importProbeJson(probe).c_str());
+        return 0;
+    }
 
     DeleteFileA("build\\COMPANION_DEP.DLL");
     check(probePeImports("build\\companion_plugin.dll", probe, error) &&
