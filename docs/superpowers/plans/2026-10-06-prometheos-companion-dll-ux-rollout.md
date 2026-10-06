@@ -170,9 +170,9 @@ git commit -m "test(buzz): accept WebCLAP companion resources"
 - Produces: one immutable `UNIVERSAL_REF` used by native Buzz CI and deployment composition.
 - Produces: focused wrapper tests/typecheck/build and universal-loader synthetic companion gate in apps CI.
 
-- [ ] **Step 1: Update `UNIVERSAL_REF`**
+- [ ] **Step 1: Update `UNIVERSAL_REF` and runtime copy lists**
 
-Set it to the immutable merge commit that contains both companion-DLL core and BoxedWine diagnostic fixes. Use the same SHA in `deploy.yml`.
+Set it to the immutable merge commit that contains both companion-DLL core and BoxedWine diagnostic fixes. Use the same SHA in `deploy.yml`. Add `runtime/dependencies.js` to both workflows' explicit universal-runtime copy lists beside `runtime.js`, `protocol.js`, and `bundle.js`.
 
 - [ ] **Step 2: Add focused companion UX tests to `desktop-wrapper`**
 
