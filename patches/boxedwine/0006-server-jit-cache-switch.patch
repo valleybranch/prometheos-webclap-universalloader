@@ -1,8 +1,8 @@
 diff --git a/project/emscripten/boxedwine-shell.js b/project/emscripten/boxedwine-shell.js
-index 6b5e5d11..be9f5b91 100644
 --- a/project/emscripten/boxedwine-shell.js
 +++ b/project/emscripten/boxedwine-shell.js
-@@ -31,6 +31,7 @@
+@@ -30,7 +30,8 @@
+         Config.storageMode = STORAGE_INDEXED_DB;
          Config.persist_d_drive = true;
          Config.showUploadDownload = false;
          Config.showSaveJITCache = true;
@@ -10,7 +10,17 @@ index 6b5e5d11..be9f5b91 100644
          Config.WorkingDir = "";
          Config.PlayScript = "";
          Config.loadDesktop = false;
-@@ -446,6 +447,20 @@
+@@ -120,7 +121,8 @@
+             Config.WorkingDir = getWorkingDir();
+             Config.PlayScript = getPlayScript();
+             Config.isSoundEnabled = getSound();
+             Config.recordJITCache = getJitRecord();
++            Config.serverJitCacheEnabled = getServerJitCacheEnabled();
+             Config.wasmModuleBrokerEnabled = getWasmModuleBrokerEnabled();
+             Config.audioFreq = getAudioFreq();
+             Config.disableHideCursor = getDisableHideCursor();
+@@ -376,7 +378,20 @@
+             }
              return record;
          }
  
@@ -29,15 +39,8 @@ index 6b5e5d11..be9f5b91 100644
          function getWasmModuleBrokerEnabled() {
              var value = getParameter("wasmModuleBroker");
              if (!allowParameterOverride()) {
-@@ -795,6 +810,7 @@
-             Config.PlayScript = getPlayScript();
-             Config.isSoundEnabled = getSound();
-             Config.recordJITCache = getJitRecord();
-+            Config.serverJitCacheEnabled = getServerJitCacheEnabled();
-             Config.wasmModuleBrokerEnabled = getWasmModuleBrokerEnabled();
-             Config.audioFreq = getAudioFreq();
-             Config.disableHideCursor = getDisableHideCursor();
-@@ -1525,6 +1541,10 @@ function getJitCacheZipFilename() {
+@@ -1508,7 +1523,11 @@
+ 
  // Attempt to fetch the JIT cache zip from the server.  If found, its entries
  // are imported into IndexedDB and the in-memory cache.
  function fetchServerJitCache(callback) {
