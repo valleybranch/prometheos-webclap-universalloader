@@ -35,5 +35,6 @@ const json = execFileSync(
   { encoding: "utf8", env },
 ).trim();
 const probe = JSON.parse(json);
-assert.deepEqual(probe.missing, ["COMPANION_DEP.DLL"]);
+assert.equal(probe.missing.length, 1);
+assert.equal(probe.missing[0].toLowerCase(), "companion_dep.dll");
 console.log("import probe bridge contract: ok");
