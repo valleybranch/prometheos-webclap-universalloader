@@ -37,6 +37,7 @@ jobs:
           export WINEPREFIX="$RUNNER_TEMP/wine32"
           wineboot -u
           node tests/abi_layout.mjs
+          wine build/pe_imports_test.exe
           node tests/import_probe_bridge.mjs
       - name: Build the vstloader WebCLAP (wasi-sdk) and check the runtime's scripts
         run: |
