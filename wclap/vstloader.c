@@ -178,7 +178,7 @@ static bool readDescriptor(const char *bundle) {
     if (g_desc.outPorts > MAX_PORTS) g_desc.outPorts = MAX_PORTS;
     if (g_desc.outPorts < 1) g_desc.outPorts = 1;
     if (g_desc.blockFrames == 0 || g_desc.blockFrames > VSTB_RING_FRAMES / 8) g_desc.blockFrames = 256;
-    if (g_desc.id[0] != 0 && g_desc.name[0] != 0) return true;
+    if (g_desc.id[0] != 0 && g_desc.name[0] != 0) { fclose(f); return true; }
 malformed:
     fclose(f);
     free(g_desc.params);
