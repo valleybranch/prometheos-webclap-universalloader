@@ -7,6 +7,17 @@
 #include <sstream>
 
 namespace {
+template <typename R, typename... A>
+static R machineCall(CMachineInterface *m, unsigned slot, A... args) {
+    using Fn = R (__attribute__((thiscall)) *)(CMachineInterface *, A...);
+    return reinterpret_cast<Fn>(m->vtable[slot])(m, args...);
+}
+static void machineDestroy(CMachineInterface *m) {
+    if (!m) return;
+    using Fn = void (__attribute__((thiscall)) *)(CMachineInterface *, unsigned);
+    reinterpret_cast<Fn>(m->vtable[0])(m, 1u);
+}
+
 static std::string jsonString(const char *text) {
     return "\"" + jsonEscape(text ? std::string(text) : std::string()) + "\"";
 }
@@ -69,14 +80,14 @@ bool BuzzMachineInstance::create(std::string &error) {
 
     tracks_ = info_->minTracks;
     clearNoValues();
-    machine_->Init(nullptr);
-    machine_->AttributesChanged();
-    machine_->SetNumTracks(tracks_);
+    machineCall<void>(machine_, 1, static_cast<CMachineDataInput *>(nullptr));
+    machineCall<void>(machine_, 7);
+    machineCall<void>(machine_, 9, tracks_);
     return true;
 }
 
 void BuzzMachineInstance::destroy() {
-    delete machine_;
+    machineDestroy(machine_);
     machine_ = nullptr;
 }
 
@@ -189,7 +200,7 @@ void BuzzMachineInstance::process(const vstb_request &request, const float *inpu
         if (count <= 0) return;
         master_.PosInTick = std::max(0, master_.PosInTick);
         const int mode = inPorts_ ? WM_READWRITE : WM_WRITE;
-        machine_->Work(mono_.data() + from, count, mode);
+        machineCall<bool>(machine_, 3, mono_.data() + from, count, mode);
         for (int i = from; i < from + count; ++i) {
             const float s = mono_[i] / 32768.0f;
             outputs[i] = s;
@@ -212,19 +223,19 @@ void BuzzMachineInstance::process(const vstb_request &request, const float *inpu
             break;
         }
         case VSTB_EV_BUZZ_TICK:
-            machine_->Tick();
+            machineCall<void>(machine_, 2);
             clearNoValues();
             master_.PosInTick = 0;
             break;
         case VSTB_EV_BUZZ_TRACKS:
             tracks_ = std::clamp(static_cast<int>(std::lround(ev.value)), info_->minTracks, info_->maxTracks);
-            machine_->SetNumTracks(tracks_);
+            machineCall<void>(machine_, 9, tracks_);
             break;
         case VSTB_EV_BUZZ_ATTR:
             if (ev.index < info_->numAttributes && machine_->AttrVals) {
                 const auto &a = *info_->Attributes[ev.index];
                 machine_->AttrVals[ev.index] = std::clamp(static_cast<int>(std::lround(ev.value)), a.MinValue, a.MaxValue);
-                machine_->AttributesChanged();
+                machineCall<void>(machine_, 7);
             }
             break;
         case VSTB_EV_BUZZ_MASTER:
@@ -233,13 +244,13 @@ void BuzzMachineInstance::process(const vstb_request &request, const float *inpu
             master_.TicksPerSec = static_cast<float>(master_.SamplesPerSec) / master_.SamplesPerTick;
             break;
         case VSTB_EV_BUZZ_STOP:
-            machine_->Stop();
+            machineCall<void>(machine_, 5);
             break;
         case VSTB_EV_MIDI:
             if ((ev.midi[0] & 0xf0) == 0x90)
-                machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], ev.midi[2]);
+                machineCall<void>(machine_, 12, int(ev.midi[0] & 0x0f), int(ev.midi[1]), int(ev.midi[2]));
             else if ((ev.midi[0] & 0xf0) == 0x80)
-                machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], 0);
+                machineCall<void>(machine_, 12, int(ev.midi[0] & 0x0f), int(ev.midi[1]), 0);
             break;
         case VSTB_EV_PARAM:
             if (ev.index < info_->numGlobalParameters) {
@@ -304,7 +315,7 @@ std::vector<uint8_t> BuzzMachineInstance::getState() {
     std::vector<uint8_t> out;
     if (!machine_) return out;
     MemoryOutput writer(out);
-    machine_->Save(&writer);
+    machineCall<void>(machine_, 6, static_cast<CMachineDataOutput *>(&writer));
     return out;
 }
 
@@ -312,12 +323,12 @@ void BuzzMachineInstance::initialise(const uint8_t *data, size_t size) {
     if (!machine_) return;
     if (data && size) {
         MemoryInput reader(data, size);
-        machine_->Init(&reader);
+        machineCall<void>(machine_, 1, static_cast<CMachineDataInput *>(&reader));
     } else {
-        machine_->Init(nullptr);
+        machineCall<void>(machine_, 1, static_cast<CMachineDataInput *>(nullptr));
     }
-    machine_->AttributesChanged();
-    machine_->SetNumTracks(tracks_);
+    machineCall<void>(machine_, 7);
+    machineCall<void>(machine_, 9, tracks_);
     clearNoValues();
 }
 
