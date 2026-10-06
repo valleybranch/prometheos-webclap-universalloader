@@ -183,7 +183,7 @@ jobs:
           mkdir -p /tmp/buzz-harness-deps
           cd /tmp/buzz-harness-deps
           printf '%s\n' '{"private":true}' > package.json
-          pnpm add esbuild@0.25.10 fflate@0.8.3 zod@3.25.76
+          pnpm add esbuild@0.25.10 fflate@0.8.3 fft.js@4.0.4 zod@3.25.76
           cd "$GITHUB_WORKSPACE"
           node tests/buzz-remote/build.mjs --buzz /tmp/prometheos-apps/apps/buzz-remote --deps /tmp/buzz-harness-deps --site dist-mt --plugins build/wraps
           node tests/buzz-remote/run.mjs --scenarios companion --out build/companion-buzz-remote
