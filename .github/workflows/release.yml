@@ -131,7 +131,7 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine wine32:i386
-          WINEARCH=win32 WINEPREFIX=/tmp/wine32-prefix WINEDEBUG=-all wine-stable dist-mt/app/vsthost.exe --replay \
+          WINEARCH=win32 WINEPREFIX="$RUNNER_TEMP/wine32-prefix" WINEDEBUG=-all wine-stable dist-mt/app/vsthost.exe --replay \
             'Z:\\'"$PWD"'\\dist-mt\\app\\FSM Kick XP.dll' \
             'Z:\\tmp\\fsm-kick-xp.capture' 'Z:\\tmp\\fsm-kick-xp.f32'
           python3 - <<'PY'
