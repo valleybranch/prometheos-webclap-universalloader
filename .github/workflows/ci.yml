@@ -24,15 +24,20 @@ jobs:
       - name: Install MinGW (i686)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-i686 g++-mingw-w64-i686 zip
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-i686 g++-mingw-w64-i686 wine wine32:i386 zip
       - name: Build vsthost.exe and the test plugins
         run: |
           BUILD_SITE=0 ./build.sh
           i686-w64-mingw32-objdump -p build/PoCSynth.dll | grep -E 'VSTPluginMain|\bmain\b'
           i686-w64-mingw32-objdump -p build/PoCSynth.vst3 | grep GetPluginFactory
           node --check web/app.js
-      - name: vstbridge layout (C header, golden JSON, JS twin, Boxedwine patch copy)
-        run: node tests/abi_layout.mjs
+      - name: PE import probe and vstbridge contract
+        run: |
+          export WINEARCH=win32
+          export WINEPREFIX="$RUNNER_TEMP/wine32"
+          wineboot -u
+          node tests/abi_layout.mjs
+          node tests/import_probe_bridge.mjs
       - name: Build the vstloader WebCLAP (wasi-sdk) and check the runtime's scripts
         run: |
           git submodule update --init vendor/clap
