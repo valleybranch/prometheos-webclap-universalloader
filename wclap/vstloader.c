@@ -33,7 +33,9 @@
 #define MAX_PARAMS 1024
 #define MAX_PORTS 4
 #define NAME_BYTES 256
-#define STATE_REFRESH_BLOCKS 94 /* ~0.5 s of 256-frame blocks at 48 kHz */
+#define STATE_REFRESH_BLOCKS 94
+#define MAX_BUZZ_PENDING 120
+#define PROMETHEOS_BUZZ_MACHINE_EXT "prometheos.buzz-machine/1" /* ~0.5 s of 256-frame blocks at 48 kHz */
 
 /* ---- atomics on the shared channel ------------------------------------------ */
 
@@ -60,6 +62,8 @@ typedef struct {
     char sha256[65];
     char runtime[1024];
     char dll[NAME_BYTES];
+    char format[32];
+    char buzzLayout[65536];
     bool synth;
     uint32_t inPorts, outPorts;
     uint32_t pluginLatency;
@@ -110,6 +114,8 @@ static bool readDescriptor(const char *bundle) {
         else if (!strcmp(key, "sha256")) copyField(g_desc.sha256, sizeof g_desc.sha256, value);
         else if (!strcmp(key, "runtime")) copyField(g_desc.runtime, sizeof g_desc.runtime, value);
         else if (!strcmp(key, "dll")) copyField(g_desc.dll, sizeof g_desc.dll, value);
+        else if (!strcmp(key, "format")) copyField(g_desc.format, sizeof g_desc.format, value);
+        else if (!strcmp(key, "buzzLayout")) copyField(g_desc.buzzLayout, sizeof g_desc.buzzLayout, value);
         else if (!strcmp(key, "synth")) g_desc.synth = atoi(value) != 0;
         else if (!strcmp(key, "inPorts")) g_desc.inPorts = (uint32_t)atoi(value);
         else if (!strcmp(key, "outPorts")) g_desc.outPorts = (uint32_t)atoi(value);
@@ -173,6 +179,18 @@ typedef struct {
     uint32_t pendingParams[MAX_PARAMS];
     float pendingValues[MAX_PARAMS];
     uint32_t pendingCount;
+
+    struct { int16_t track; uint16_t index; int32_t value; } buzzValues[MAX_BUZZ_PENDING];
+    uint32_t buzzValueCount;
+    int32_t buzzTracks;
+    bool buzzTracksDirty;
+    uint16_t buzzAttrIndex[MAX_BUZZ_PENDING];
+    int32_t buzzAttrValue[MAX_BUZZ_PENDING];
+    uint32_t buzzAttrCount;
+    int32_t buzzBpm, buzzTpb;
+    double buzzSpt;
+    bool buzzMasterDirty;
+    bool buzzStopPending;
 
     uint8_t *state;
     uint32_t stateSize;
@@ -443,6 +461,10 @@ static clap_process_status vl_process(const clap_plugin_t *plugin, const clap_pr
         v->releaseAll = false;
         midiEvent(v, at, 0xb0, 123, 0);
     }
+    if (v->buzzStopPending) {
+        v->buzzStopPending = false;
+        addEvent(v, at, VSTB_EV_BUZZ_STOP, 0, 0.0f, 0, 0, 0);
+    }
 
     const clap_input_events_t *events = process->in_events;
     const uint32_t count = events ? events->size(events) : 0;
@@ -470,6 +492,71 @@ static clap_process_status vl_process(const clap_plugin_t *plugin, const clap_pr
     }
     return CLAP_PROCESS_CONTINUE;
 }
+
+
+/* ---- prometheos.buzz-machine/1 -------------------------------------------------- */
+
+typedef struct {
+    const char *(*layout)(const clap_plugin_t *);
+    void (*set_master_info)(const clap_plugin_t *, int32_t, int32_t, double);
+    void (*set_num_tracks)(const clap_plugin_t *, int32_t);
+    void (*set_attribute)(const clap_plugin_t *, int32_t, int32_t);
+    void (*set_value)(const clap_plugin_t *, int32_t, int32_t, int32_t);
+    void (*tick)(const clap_plugin_t *, uint32_t);
+    void (*stop)(const clap_plugin_t *);
+} prometheos_buzz_machine_t;
+
+static bool isBuzz(void) { return !strcmp(g_desc.format, "buzz"); }
+static const char *buzz_layout(const clap_plugin_t *plugin) { (void)plugin; return g_desc.buzzLayout; }
+static void buzz_master(const clap_plugin_t *plugin, int32_t bpm, int32_t tpb, double spt) {
+    vl_plugin *v = self(plugin); v->buzzBpm = bpm; v->buzzTpb = tpb; v->buzzSpt = spt; v->buzzMasterDirty = true;
+}
+static void buzz_tracks(const clap_plugin_t *plugin, int32_t tracks) {
+    vl_plugin *v = self(plugin); v->buzzTracks = tracks; v->buzzTracksDirty = true;
+}
+static void buzz_attribute(const clap_plugin_t *plugin, int32_t index, int32_t value) {
+    vl_plugin *v = self(plugin);
+    if (index < 0 || index > 65535 || v->buzzAttrCount >= MAX_BUZZ_PENDING) return;
+    v->buzzAttrIndex[v->buzzAttrCount] = (uint16_t)index;
+    v->buzzAttrValue[v->buzzAttrCount++] = value;
+}
+static void buzz_value(const clap_plugin_t *plugin, int32_t track, int32_t index, int32_t value) {
+    vl_plugin *v = self(plugin);
+    if (track < -1 || track > 254 || index < 0 || index > 65535 || v->buzzValueCount >= MAX_BUZZ_PENDING) return;
+    v->buzzValues[v->buzzValueCount].track = (int16_t)track;
+    v->buzzValues[v->buzzValueCount].index = (uint16_t)index;
+    v->buzzValues[v->buzzValueCount].value = value;
+    v->buzzValueCount++;
+}
+static void buzz_tick(const clap_plugin_t *plugin, uint32_t sampleOffset) {
+    vl_plugin *v = self(plugin);
+    uint32_t offset = (uint32_t)(v->frame - (int64_t)v->k * v->B) + sampleOffset;
+    if (offset >= v->B) offset = v->B - 1;
+    if (v->buzzMasterDirty) {
+        addEvent(v, offset, VSTB_EV_BUZZ_MASTER, (uint16_t)(v->buzzTpb > 0 ? v->buzzTpb : 4),
+                 (float)(v->buzzSpt > 0 ? v->buzzSpt : 1.0), 0, 0, 0);
+        v->buzzMasterDirty = false;
+    }
+    if (v->buzzTracksDirty) {
+        addEvent(v, offset, VSTB_EV_BUZZ_TRACKS, 0, (float)v->buzzTracks, 0, 0, 0);
+        v->buzzTracksDirty = false;
+    }
+    for (uint32_t i = 0; i < v->buzzAttrCount; ++i)
+        addEvent(v, offset, VSTB_EV_BUZZ_ATTR, v->buzzAttrIndex[i], (float)v->buzzAttrValue[i], 0, 0, 0);
+    v->buzzAttrCount = 0;
+    for (uint32_t i = 0; i < v->buzzValueCount; ++i) {
+        uint16_t encoded = (uint16_t)(v->buzzValues[i].track + 1);
+        addEvent(v, offset, VSTB_EV_BUZZ_VALUE, v->buzzValues[i].index, (float)v->buzzValues[i].value,
+                 (uint8_t)(encoded & 255), (uint8_t)(encoded >> 8), 0);
+    }
+    v->buzzValueCount = 0;
+    addEvent(v, offset, VSTB_EV_BUZZ_TICK, 0, 0.0f, 0, 0, 0);
+    v->stateDirty = true;
+}
+static void buzz_stop(const clap_plugin_t *plugin) { self(plugin)->buzzStopPending = true; }
+static const prometheos_buzz_machine_t g_buzz_machine = {
+    buzz_layout, buzz_master, buzz_tracks, buzz_attribute, buzz_value, buzz_tick, buzz_stop
+};
 
 /* ---- lifecycle ------------------------------------------------------------------ */
 
@@ -747,6 +834,7 @@ static const void *vl_get_extension(const clap_plugin_t *plugin, const char *id)
     if (!strcmp(id, CLAP_EXT_PARAMS)) return &g_params;
     if (!strcmp(id, CLAP_EXT_STATE)) return &g_state;
     if (!strcmp(id, PROMETHEOS_EXT_RUNTIME)) return &g_runtime;
+    if (isBuzz() && !strcmp(id, PROMETHEOS_BUZZ_MACHINE_EXT)) return &g_buzz_machine;
     return NULL;
 }
 
@@ -796,7 +884,7 @@ static bool entry_init(const char *plugin_path) {
     g_clap_desc.manual_url = "";
     g_clap_desc.support_url = "";
     g_clap_desc.version = g_desc.version;
-    g_clap_desc.description = "Windows VST2 plugin, run by Boxedwine (prometheos-webclap-vstloader)";
+    g_clap_desc.description = isBuzz() ? "Native Jeskola Buzz machine, run by Boxedwine" : "Windows VST plugin, run by Boxedwine";
     g_clap_desc.features = g_desc.synth ? g_features_synth : g_features_effect;
     return true;
 }
