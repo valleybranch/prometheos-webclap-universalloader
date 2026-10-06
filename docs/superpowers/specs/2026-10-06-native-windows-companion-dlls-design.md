@@ -199,15 +199,17 @@ resource and sends a new runtime frame `VL_DEPENDENCY` containing:
 u16 nameBytes
 u16 reserved
 u32 dataBytes
+u8  sha256[32]
 u8  name[nameBytes]
 u8  data[dataBytes]
 ```
 
 Dependency frames are sent on the main/control path before `VL_HELLO`; they
-are never sent from the audio processing path. The runtime stores pending
-dependencies on the instance. When `HELLO` arrives, it verifies the
-descriptor hashes, uploads all files into the isolated guest directory, and
-then loads the primary module.
+are never sent from the audio processing path. The shim copies each expected
+SHA-256 from the frozen descriptor into the frame. The runtime stores pending
+dependencies on the instance. When `HELLO` arrives, it computes each payload
+hash and compares it with the expected frame hash, uploads all verified files
+into the isolated guest directory, and then loads the primary module.
 
 For wrapping, the browser wrapper passes the same dependency collection
 directly to `probeBinary` / `describeBinary`; it does not need a temporary
