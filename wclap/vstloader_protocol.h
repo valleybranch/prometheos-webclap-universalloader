@@ -14,6 +14,7 @@ enum {
     VL_SET_STATE = 2, /* the plugin's state (chunk) to restore */
     VL_GET_STATE = 3, /* asks for a fresh VL_STATE */
     VL_BYE = 4,       /* the instance is going away */
+    VL_DEPENDENCY = 5, /* companion DLL frame; must precede VL_HELLO */
 
     /* runtime -> plugin */
     VL_STATE = 101,  /* the plugin's current state, cached for clap.state.save */
