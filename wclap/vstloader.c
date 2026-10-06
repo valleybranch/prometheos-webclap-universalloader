@@ -178,6 +178,21 @@ static bool readDescriptor(const char *bundle) {
     return g_desc.id[0] != 0 && g_desc.name[0] != 0;
 }
 
+static bool loadDependencies(const char *bundle) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        vl_dependency_info *d = &g_desc.dependencies[i];
+        char path[2200];
+        snprintf(path, sizeof path, "%s/%s", bundle, d->resource);
+        FILE *f = fopen(path, "rb");
+        if (!f) return false;
+        if (fseek(f, 0, SEEK_END) || (long)(d->size = (uint32_t)ftell(f)) < 0 || fseek(f, 0, SEEK_SET)) { fclose(f); return false; }
+        d->bytes = d->size ? malloc(d->size) : NULL;
+        if (!d->bytes || fread(d->bytes, 1, d->size, f) != d->size) { fclose(f); return false; }
+        fclose(f);
+    }
+    return true;
+}
+
 /* ---- channels: VSTB_MAX_CHANNELS of them in this module's memory --------------- */
 
 static uint8_t g_channels[VSTB_MAX_CHANNELS][VSTB_CHANNEL_BYTES] __attribute__((aligned(4096)));
@@ -258,6 +273,31 @@ static bool sendFrame(vl_plugin *v, uint32_t op, const void *a, uint32_t aSize, 
     return ok;
 }
 
+static bool sendDependencies(vl_plugin *v) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        const vl_dependency_info *d = &g_desc.dependencies[i];
+        const uint16_t nameBytes = (uint16_t)strlen(d->name);
+        const uint32_t headerBytes = 40;
+        const uint32_t bodySize = headerBytes + nameBytes + d->size;
+        uint8_t *body = malloc(bodySize);
+        if (!body) return false;
+        memset(body, 0, headerBytes);
+        memcpy(body, &nameBytes, 2);
+        memcpy(body + 4, &d->size, 4);
+        for (uint32_t j = 0; j < 32; ++j) {
+            unsigned value = 0;
+            if (sscanf(d->sha256 + j * 2, "%2x", &value) != 1) { free(body); return false; }
+            body[8 + j] = (uint8_t)value;
+        }
+        memcpy(body + headerBytes, d->name, nameBytes);
+        memcpy(body + headerBytes + nameBytes, d->bytes, d->size);
+        bool ok = sendFrame(v, VL_DEPENDENCY, body, bodySize, NULL, 0);
+        free(body);
+        if (!ok) return false;
+    }
+    return true;
+}
+
 /* Reads resources/<dll> and hands it, with the channel's whereabouts, to the runtime. */
 static void sendHello(vl_plugin *v) {
     if (v->helloSent || !v->hostRuntime || v->channel < 0) return;
@@ -291,6 +331,11 @@ static void sendHello(vl_plugin *v) {
     hello.outPorts = g_desc.outPorts;
     hello.dllSize = (uint32_t)size;
     memcpy(hello.sha256, g_desc.sha256, 64);
+    if (!sendDependencies(v)) {
+        free(dll);
+        logf_(v, CLAP_LOG_ERROR, "vstloader: cannot send companion dependencies");
+        return;
+    }
     v->helloSent = sendFrame(v, VL_HELLO, &hello, sizeof hello, dll, (uint32_t)size);
     free(dll);
     if (v->helloSent && v->stateToSend && v->state) {
