@@ -177,9 +177,10 @@ jobs:
           node wrap/wrap.mjs build/companion_plugin.dll --dep build/companion_dep.dll \
             --site http://127.0.0.1:8080 --runtime "$RUNTIME_URL" \
             --out build/wraps/companion-test.wclap.tar.gz
-          tar xzf build/wraps/companion-test.wclap.tar.gz -C /tmp companion-test-extract 2>/dev/null || true
           descriptor="$(tar xzOf build/wraps/companion-test.wclap.tar.gz resources/vstloader.txt)"
-          printf '%s\n' "$descriptor" | grep -E '^dependency=companion_dep\.dll[[:space:]][0-9a-f]{64}[[:space:]]resources/deps/companion_dep\.dll
+          printf '%s\n' "$descriptor" | grep -E '^dependency=companion_dep[.]dll[[:space:]][0-9a-f]{64}[[:space:]]resources/deps/companion_dep[.]dll$'
+          tar tzf build/wraps/companion-test.wclap.tar.gz | grep -Fx 'resources/deps/companion_dep.dll'
+          for plugin in PoCSynth.dll:PoCSynth PoCSynth.vst3:PoCSynth-vst3 PoCInvert.dll:PoCInvert Dexed.dll:Dexed 'FSM Kick XP.dll:FSM-Kick-XP-Buzz'; do
             node wrap/wrap.mjs "app/${plugin%%:*}" --site http://127.0.0.1:8080 --runtime "$RUNTIME_URL" \
               --out "out/${plugin##*:}.wclap.tar.gz"
           done
