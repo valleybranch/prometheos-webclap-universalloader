@@ -13,8 +13,20 @@ const browser = await chromium.launch({
   args: ["--autoplay-policy=no-user-gesture-required"],
   executablePath: process.env.CHROMIUM || undefined,
 });
+const observedRequests = [];
+const observedErrors = [];
+function observe(target, label) {
+  target.on("request", (request) => observedRequests.push(request.url()));
+  target.on("pageerror", (error) => {
+    observedErrors.push(String(error?.stack || error?.message || error));
+    console.log(`${label} pageerror:`, error.message);
+  });
+  target.on("console", (message) => {
+    if (message.type() === "error") observedErrors.push(message.text());
+  });
+}
 const page = await browser.newPage({ viewport: { width: 1100, height: 1000 } });
-page.on("pageerror", (e) => console.log("pageerror:", e.message));
+observe(page, "demo");
 await page.goto(`${base}/index.html`);
 await page.waitForSelector("#plugin option", { state: "attached" });
 let failures = 0;
@@ -24,7 +36,7 @@ if (companionPrimary && companionDep) {
   const depBytes = readFileSync(companionDep).toString("base64");
   const depName = basename(companionDep);
   const runtimePage = await browser.newPage();
-  runtimePage.on("pageerror", (e) => console.log("runtime pageerror:", e.message));
+  observe(runtimePage, "runtime");
   await runtimePage.goto(`${base}/runtime/index.html?boot=1`);
   await runtimePage.waitForFunction(
     () => window.vstloaderRuntime?.state.phase === "ready" || window.vstloaderRuntime?.state.phase === "failed",
@@ -63,6 +75,14 @@ for (const plugin of plugins) {
     params: (r.params || []).length,
   }));
   if (shots) await page.screenshot({ path: `${shots}/${plugin.replace(/\W+/g, "_")}.png`, fullPage: true });
+}
+const jitRequests = observedRequests.filter((url) => /-jit-modules\.zip(?:\?|$)/.test(url));
+const alertErrors = observedErrors.filter((error) => /ReferenceError:\s*alert is not defined/i.test(error));
+if (jitRequests.length || alertErrors.length) {
+  failures++;
+  console.log(JSON.stringify({ boxedwineDiagnostics: false, jitRequests, alertErrors }));
+} else {
+  console.log(JSON.stringify({ boxedwineDiagnostics: true, jitRequests: 0, alertErrors: 0 }));
 }
 await browser.close();
 process.exit(failures ? 1 : 0);
