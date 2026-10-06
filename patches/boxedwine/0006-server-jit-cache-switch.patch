@@ -10,7 +10,7 @@ index 6b5e5d11..be9f5b91 100644
          Config.WorkingDir = "";
          Config.PlayScript = "";
          Config.loadDesktop = false;
-@@ -446,6 +447,19 @@
+@@ -446,6 +447,20 @@
              return record;
          }
  
@@ -29,7 +29,7 @@ index 6b5e5d11..be9f5b91 100644
          function getWasmModuleBrokerEnabled() {
              var value = getParameter("wasmModuleBroker");
              if (!allowParameterOverride()) {
-@@ -795,6 +809,7 @@
+@@ -795,6 +810,7 @@
              Config.PlayScript = getPlayScript();
              Config.isSoundEnabled = getSound();
              Config.recordJITCache = getJitRecord();
@@ -37,7 +37,7 @@ index 6b5e5d11..be9f5b91 100644
              Config.wasmModuleBrokerEnabled = getWasmModuleBrokerEnabled();
              Config.audioFreq = getAudioFreq();
              Config.disableHideCursor = getDisableHideCursor();
-@@ -1525,6 +1540,10 @@ function getJitCacheZipFilename() {
+@@ -1525,6 +1541,10 @@ function getJitCacheZipFilename() {
  // Attempt to fetch the JIT cache zip from the server.  If found, its entries
  // are imported into IndexedDB and the in-memory cache.
  function fetchServerJitCache(callback) {
