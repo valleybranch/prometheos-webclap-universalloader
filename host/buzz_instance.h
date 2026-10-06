@@ -2,6 +2,9 @@
 #include "plugin_instance.h"
 #include "buzz_abi.h"
 #include <windows.h>
+#ifdef MessageBox
+#undef MessageBox
+#endif
 #include <string>
 #include <vector>
 

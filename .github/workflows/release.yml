@@ -113,6 +113,16 @@ jobs:
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium
 
+      - name: Fetch a real Robotplanet Buzz machine fixture
+        run: |
+          # FSM Kick XP 1.0 SP1 is a native x86 Buzz generator. Buze's package
+          # index pins this Robotplanet download to SHA-1
+          # dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d.
+          curl -fsSL -o /tmp/fsm-kick-xp.zip 'https://buzz.robotplanet.dk/download.php?type=machine&id=8429'
+          echo 'dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d  /tmp/fsm-kick-xp.zip' | sha1sum -c -
+          unzip -j -o /tmp/fsm-kick-xp.zip 'FSM Kick XP.dll' -d dist-mt/app
+          test -s 'dist-mt/app/FSM Kick XP.dll'
+
       - name: Wrap the plugins
         env:
           RUNTIME_URL: ${{ inputs.runtime || vars.VSTLOADER_RUNTIME_URL || env.DEFAULT_RUNTIME_URL }}
@@ -120,7 +130,7 @@ jobs:
           python3 serve.py 8080 dist-mt > /tmp/serve.log 2>&1 &
           sleep 1
           mkdir -p out
-          for plugin in PoCSynth.dll:PoCSynth PoCSynth.vst3:PoCSynth-vst3 PoCInvert.dll:PoCInvert Dexed.dll:Dexed; do
+          for plugin in PoCSynth.dll:PoCSynth PoCSynth.vst3:PoCSynth-vst3 PoCInvert.dll:PoCInvert Dexed.dll:Dexed 'FSM Kick XP.dll:FSM-Kick-XP-Buzz'; do
             node wrap/wrap.mjs "app/${plugin%%:*}" --site http://127.0.0.1:8080 --runtime "$RUNTIME_URL" \
               --out "out/${plugin##*:}.wclap.tar.gz"
           done

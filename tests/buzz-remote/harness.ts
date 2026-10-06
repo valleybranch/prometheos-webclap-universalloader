@@ -212,6 +212,42 @@ function chordPattern(m: Machine, voices: number): Pattern {
   return { id: `${m.id}-chords`, machineId: m.id, name: "Chords", rows: 16, data };
 }
 
+function buzzPattern(m: Machine): Pattern {
+  const cls = machineClassById(m.classId)!;
+  const gNote = cls.globalParameters.findIndex((p) => p.type === "note");
+  const tNote = cls.trackParameters.findIndex((p) => p.type === "note");
+  const gTrigger = cls.globalParameters.findIndex(
+    (p) => p.type !== "note" && !(p.flags & MPF_STATE) && p.maxValue > p.minValue,
+  );
+  const tTrigger = cls.trackParameters.findIndex(
+    (p) => p.type !== "note" && !(p.flags & MPF_STATE) && p.maxValue > p.minValue,
+  );
+  const data: number[] = [];
+  for (let row = 0; row < 16; row++) {
+    const hit = row % 4 === 0;
+    const release = row % 4 === 3;
+    for (let i = 0; i < cls.globalParameters.length; i++) {
+      const p = cls.globalParameters[i]!;
+      let value = p.noValue;
+      if (i === gNote && (hit || release)) value = hit ? buzzNote(48 + ((row / 4) | 0) * 2) : 255;
+      else if (i === gTrigger && hit) value = p.defValue !== p.noValue ? p.defValue : p.maxValue;
+      data.push(value);
+    }
+    for (let track = 0; track < m.tracks; track++) {
+      for (let i = 0; i < cls.trackParameters.length; i++) {
+        const p = cls.trackParameters[i]!;
+        let value = p.noValue;
+        if (track === 0 && i === tNote && (hit || release)) value = hit ? buzzNote(48 + ((row / 4) | 0) * 2) : 255;
+        else if (track === 0 && i === tTrigger && hit) value = p.defValue !== p.noValue ? p.defValue : p.maxValue;
+        data.push(value);
+      }
+    }
+  }
+  if (gNote < 0 && tNote < 0 && gTrigger < 0 && tTrigger < 0)
+    throw new Error(`${cls.name}: no note or trigger parameter for Buzz sound test`);
+  return { id: `${m.id}-buzz-test`, machineId: m.id, name: "Buzz native test", rows: 16, data };
+}
+
 function song(machines: Machine[], connections: Connection[], patterns: Pattern[]): Song {
   return {
     name: "vstloader harness",
@@ -371,9 +407,13 @@ const captures: Record<string, Uint8Array> = {};
 async function songScenario(file: string, seconds: number, captureSeconds: number): Promise<unknown> {
   const e = await startEngine();
   const pkg = installed.find((p) => p.source.kind === "local" && p.source.location === file) ?? (await install(file));
-  const classId = pkg.manifest.classes[0]!.classId;
-  const inst = machine("vst", classId, 8, 100);
-  const s = song([inst, MASTER], [edge("c1", "vst", "master")], [chordPattern(inst, 8)]);
+  const installedClass = pkg.manifest.classes[0]!;
+  const classId = installedClass.classId;
+  const cls = machineClassById(classId)!;
+  const tracks = installedClass.buzz ? cls.defaultTracks : 8;
+  const inst = machine("vst", classId, tracks, 100);
+  const pattern = installedClass.buzz ? buzzPattern(inst) : chordPattern(inst, 8);
+  const s = song([inst, MASTER], [edge("c1", "vst", "master")], [pattern]);
   const loadStarted = performance.now();
   sendSong(e, s);
   await waitFor(() => runtimeInstance("vst"), 600_000, "the plugin to load in the runtime");
@@ -397,8 +437,19 @@ async function songScenario(file: string, seconds: number, captureSeconds: numbe
   }
   e.send({ type: "transport", action: "stop" });
   const watched = watch.stop();
+  let peak = 0, sumSquares = 0, nonFinite = 0, nonZero = 0;
+  for (const sample of samples) {
+    if (!Number.isFinite(sample)) { nonFinite++; continue; }
+    const a = Math.abs(sample);
+    if (a > peak) peak = a;
+    if (a > 1e-7) nonZero++;
+    sumSquares += sample * sample;
+  }
+  const audio = { peak, rms: Math.sqrt(sumSquares / Math.max(1, samples.length)), nonZero, nonFinite };
+  if (installedClass.buzz && (nonFinite !== 0 || peak <= 1e-6 || nonZero < 100))
+    throw new Error(`${file}: native Buzz render failed sound check: ${JSON.stringify(audio)}`);
   const result = {
-    file, classId, loadSeconds, bootSeconds: runtime()!.state.bootSeconds, playedSeconds: (performance.now() - started) / 1000,
+    file, classId, loadSeconds, audio, bootSeconds: runtime()!.state.bootSeconds, playedSeconds: (performance.now() - started) / 1000,
     sampleRate: e.ctx.sampleRate, latency: L, block: B,
     underrunBlocks: watched.underruns, skipped: watched.skipped, maxProcessUs: watched.maxProcessUs,
     stalls: watched.episodes, slowTurns: watched.slowTurns, timeline,
