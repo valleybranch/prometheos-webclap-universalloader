@@ -144,6 +144,10 @@ jobs:
           key: wine-fs-e38234f93e85b1714c54f87ec3246a8275683b091219a8a4651ea7e3acd16b79
 
       - name: Build the site (vsthost, test plugins, shim, runtime)
+        env:
+          # Optional repository variable for a trusted mirror of the exact pinned
+          # Wine filesystem. build.sh still verifies WINE_FS_SHA256 before use.
+          WINE_FS_FALLBACK_URL: ${{ vars.BOXEDWINE_WINE_FS_MIRROR_URL }}
         run: BOXEDWINE_BUILD=~/boxedwine-build DIST=dist-mt WITH_DEXED=1 ./build.sh
 
       - uses: actions/setup-node@v4
