@@ -62,7 +62,31 @@ int main(int argc, char **argv) {
         }
         std::fclose(src);
     }
-    if (bytes.size() > 512) bytes.resize(bytes.size() / 2);
+    // Truncate at the first import descriptor rather than at an arbitrary
+    // fraction of the file; linkers may place the complete import table in
+    // the first half of a small DLL.
+    size_t truncateAt = 0;
+    if (bytes.size() >= sizeof(IMAGE_DOS_HEADER)) {
+        const auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(bytes.data());
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew >= 0 &&
+            static_cast<size_t>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS32) <= bytes.size()) {
+            const auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(bytes.data() + dos->e_lfanew);
+            const DWORD importRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+            const auto *section = IMAGE_FIRST_SECTION(nt);
+            for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+                const DWORD span = section[i].Misc.VirtualSize > section[i].SizeOfRawData
+                    ? section[i].Misc.VirtualSize : section[i].SizeOfRawData;
+                if (importRva >= section[i].VirtualAddress && importRva - section[i].VirtualAddress < span) {
+                    truncateAt = static_cast<size_t>(section[i].PointerToRawData) +
+                                 (importRva - section[i].VirtualAddress) +
+                                 sizeof(IMAGE_IMPORT_DESCRIPTOR) / 2;
+                    break;
+                }
+            }
+        }
+    }
+    check(truncateAt > 0 && truncateAt < bytes.size(), "locates_import_table_for_truncation");
+    if (truncateAt > 0 && truncateAt < bytes.size()) bytes.resize(truncateAt);
     FILE *dst = std::fopen("build\\companion_plugin_truncated.dll", "wb");
     if (dst) {
         std::fwrite(bytes.data(), 1, bytes.size(), dst);
