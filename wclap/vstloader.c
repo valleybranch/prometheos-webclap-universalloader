@@ -957,6 +957,7 @@ static const clap_plugin_factory_t g_factory = {get_plugin_count, get_plugin_des
 static bool entry_init(const char *plugin_path) {
     copyField(g_bundle, sizeof g_bundle, plugin_path);
     if (!readDescriptor(plugin_path)) return false;
+    if (!loadDependencies(plugin_path)) return false;
     g_clap_desc.clap_version = (clap_version_t)CLAP_VERSION_INIT;
     g_clap_desc.id = g_desc.id;
     g_clap_desc.name = g_desc.name;
@@ -970,7 +971,15 @@ static bool entry_init(const char *plugin_path) {
     return true;
 }
 
-static void entry_deinit(void) {}
+static void entry_deinit(void) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        free(g_desc.dependencies[i].bytes);
+        g_desc.dependencies[i].bytes = NULL;
+        g_desc.dependencies[i].size = 0;
+    }
+    free(g_desc.params);
+    g_desc.params = NULL;
+}
 
 static const void *entry_get_factory(const char *factory_id) {
     return !strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) ? &g_factory : NULL;
