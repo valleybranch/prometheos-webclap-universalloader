@@ -1,21 +1,17 @@
+import { assertX86Pe, normalizeDependencies } from "../runtime/dependencies.js";
+
 // Universal Windows-plugin WebCLAP bundle builder. VST2/VST3 retain the
 // original vstloader descriptor; Buzz DLLs add their raw machine metadata while
 // using the same runtime and shared Boxedwine instance.
 
 export function checkBinary(bytes, fileName = "") {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length < 0x40 || view.getUint16(0, true) !== 0x5a4d) throw new Error(`${fileName || "the file"} is not a Windows binary`);
-  const pe = view.getUint32(0x3c, true);
-  if (pe + 6 > bytes.length || view.getUint32(pe, true) !== 0x4550) throw new Error(`${fileName || "the file"} is not a Windows binary`);
-  const machine = view.getUint16(pe + 4, true);
-  if (machine === 0x8664) throw new Error(`${fileName || "the plugin"} is a 64-bit plugin; only 32-bit (x86) plugins run`);
-  if (machine !== 0x14c) throw new Error(`${fileName || "the plugin"} is not an x86 binary`);
+  assertX86Pe(bytes, fileName || "the file");
   return /\.vst3$/i.test(fileName) ? "vst3" : "windows-dll";
 }
 
 const clean = (text) => String(text ?? "").replace(/[\t\r\n]/g, " ").trim();
 
-export function descriptor({ sha256, describe, runtime, fileName = "" }) {
+export function descriptor({ sha256, describe, runtime, fileName = "", dependencies = [] }) {
   const stem = fileName.replace(/^.*[\\/]/, "").replace(/\.(dll|vst3)$/i, "");
   const version = describe.versionString || (describe.vendorVersion ? String(describe.vendorVersion) : "") || "1.0.0";
   const isBuzz = describe.format === "buzz";
@@ -53,6 +49,7 @@ export function descriptor({ sha256, describe, runtime, fileName = "" }) {
     `latency=${Math.max(0, describe.latency | 0)}`,
     "bridgeLatency=2048",
     "block=256",
+    ...dependencies.map((d) => `dependency=${d.name}\t${d.sha256}\tresources/deps/${d.name}`),
     ...(isBuzz ? [
       `buzzName=${clean(describe.name)}`,
       `buzzLayout=${buzzLayout}`,
@@ -92,11 +89,13 @@ export async function gzip(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-export async function buildBundle({ wasm, plugin, describe, sha256, runtime, fileName }) {
-  const text = new TextEncoder().encode(descriptor({ sha256, describe, runtime, fileName }));
+export async function buildBundle({ wasm, plugin, describe, sha256, runtime, fileName, dependencies = [] }) {
+  const deps = await normalizeDependencies(dependencies);
+  const text = new TextEncoder().encode(descriptor({ sha256, describe, runtime, fileName, dependencies: deps }));
   return gzip(tar([
     { name: "module.wasm", bytes: wasm },
     { name: "resources/plugin.dll", bytes: plugin },
+    ...deps.map((d) => ({ name: `resources/deps/${d.name}`, bytes: d.bytes })),
     { name: "resources/vstloader.txt", bytes: text },
   ]));
 }
