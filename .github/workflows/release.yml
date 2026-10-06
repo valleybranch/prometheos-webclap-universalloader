@@ -73,6 +73,47 @@ jobs:
           tar xzf /tmp/wasi-sdk.tar.gz -C /tmp
           echo "WASI_SDK=/tmp/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
 
+      - name: Build Windows host for native Buzz gate
+        run: BUILD_SITE=0 ./build.sh
+
+      - name: Fetch a real Robotplanet Buzz machine fixture
+        run: |
+          # FSM Kick XP 1.0 SP1 is a native x86 Buzz generator. Buze's package
+          # index pins this Robotplanet download to SHA-1
+          # dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d.
+          curl -fsSL -o /tmp/fsm-kick-xp.zip 'https://buzz.robotplanet.dk/download.php?type=machine&id=8429'
+          echo 'dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d  /tmp/fsm-kick-xp.zip' | sha1sum -c -
+          unzip -j -o /tmp/fsm-kick-xp.zip 'FSM Kick XP.dll' -d build
+          test -s 'build/FSM Kick XP.dll'
+
+      - name: Render real Robotplanet Buzz generator through 32-bit Wine
+        run: |
+          python3 tests/make_buzz_capture.py /tmp/fsm-kick-xp.capture
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine32:i386
+          test -x /usr/lib/wine/wine
+          i686-w64-mingw32-objdump -p build/vsthost.exe | grep 'DLL Name'
+          HOST_WIN="Z:${PWD//\//\\}\\build\\vsthost.exe"
+          DLL_WIN="Z:${PWD//\//\\}\\build\\FSM Kick XP.dll"
+          timeout 45s env WINEARCH=win32 WINEPREFIX="$RUNNER_TEMP/wine32-prefix" WINEDEBUG=-all \
+            /usr/lib/wine/wine "$HOST_WIN" --replay "$DLL_WIN" \
+            'Z:\\tmp\\fsm-kick-xp.capture' 'Z:\\tmp\\fsm-kick-xp.f32'
+          python3 - <<'PY'
+          import json, math, struct
+          p = '/tmp/fsm-kick-xp.f32'
+          raw = open(p, 'rb').read()
+          samples = struct.unpack('<%df' % (len(raw)//4), raw)
+          finite = [x for x in samples if math.isfinite(x)]
+          peak = max((abs(x) for x in finite), default=0.0)
+          rms = math.sqrt(sum(x*x for x in finite) / max(1, len(finite)))
+          nonzero = sum(abs(x) > 1e-7 for x in finite)
+          result = {'samples': len(samples), 'finite': len(finite), 'peak': peak, 'rms': rms, 'nonzero': nonzero}
+          print(json.dumps(result))
+          assert len(finite) == len(samples), result
+          assert peak > 1e-6 and nonzero >= 100, result
+          PY
+
       # Boxedwine (GPL-2.0-or-later) at a pinned commit with patches/boxedwine/,
       # built with Emscripten: the multithreaded JIT build the runtime needs.
       - name: Cache the Boxedwine build
@@ -113,41 +154,12 @@ jobs:
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium
 
-      - name: Fetch a real Robotplanet Buzz machine fixture
+      - name: Stage verified Buzz fixture for browser wrapper
         run: |
-          # FSM Kick XP 1.0 SP1 is a native x86 Buzz generator. Buze's package
-          # index pins this Robotplanet download to SHA-1
-          # dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d.
-          curl -fsSL -o /tmp/fsm-kick-xp.zip 'https://buzz.robotplanet.dk/download.php?type=machine&id=8429'
-          echo 'dff3b3fdc352ec9b9cd709bbfc15312cfc31a19d  /tmp/fsm-kick-xp.zip' | sha1sum -c -
-          unzip -j -o /tmp/fsm-kick-xp.zip 'FSM Kick XP.dll' -d dist-mt/app
-          test -s 'dist-mt/app/FSM Kick XP.dll'
-
-      - name: Render real Robotplanet Buzz generator through Wine host
-        run: |
-          python3 tests/make_buzz_capture.py /tmp/fsm-kick-xp.capture
-          # Wine executes the same 32-bit vsthost.exe used inside BoxedWine. This
-          # isolates Buzz ABI/tick/audio correctness before the browser layer.
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine32:i386
-          WINEDEBUG=-all wine dist-mt/app/vsthost.exe --replay \
-            'Z:\\'"$PWD"'\\dist-mt\\app\\FSM Kick XP.dll' \
-            'Z:\\tmp\\fsm-kick-xp.capture' 'Z:\\tmp\\fsm-kick-xp.f32'
-          python3 - <<'PY'
-          import json, math, struct
-          p = '/tmp/fsm-kick-xp.f32'
-          raw = open(p, 'rb').read()
-          samples = struct.unpack('<%df' % (len(raw)//4), raw)
-          finite = [x for x in samples if math.isfinite(x)]
-          peak = max((abs(x) for x in finite), default=0.0)
-          rms = math.sqrt(sum(x*x for x in finite) / max(1, len(finite)))
-          nonzero = sum(abs(x) > 1e-7 for x in finite)
-          result = {'samples': len(samples), 'finite': len(finite), 'peak': peak, 'rms': rms, 'nonzero': nonzero}
-          print(json.dumps(result))
-          assert len(finite) == len(samples), result
-          assert peak > 1e-6 and nonzero >= 100, result
-          PY
+          # wrap.mjs reads the plugin from the checkout; the served site is only
+          # the runtime used to describe it.
+          mkdir -p app
+          cp 'build/FSM Kick XP.dll' 'app/FSM Kick XP.dll'
 
       - name: Wrap the plugins
         env:
