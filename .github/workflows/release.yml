@@ -123,6 +123,32 @@ jobs:
           unzip -j -o /tmp/fsm-kick-xp.zip 'FSM Kick XP.dll' -d dist-mt/app
           test -s 'dist-mt/app/FSM Kick XP.dll'
 
+      - name: Render real Robotplanet Buzz generator through Wine host
+        run: |
+          python3 tests/make_buzz_capture.py /tmp/fsm-kick-xp.capture
+          # Wine executes the same 32-bit vsthost.exe used inside BoxedWine. This
+          # isolates Buzz ABI/tick/audio correctness before the browser layer.
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine32:i386
+          WINEDEBUG=-all wine dist-mt/app/vsthost.exe --replay \
+            'Z:\\'"$PWD"'\\dist-mt\\app\\FSM Kick XP.dll' \
+            'Z:\\tmp\\fsm-kick-xp.capture' 'Z:\\tmp\\fsm-kick-xp.f32'
+          python3 - <<'PY'
+          import json, math, struct
+          p = '/tmp/fsm-kick-xp.f32'
+          raw = open(p, 'rb').read()
+          samples = struct.unpack('<%df' % (len(raw)//4), raw)
+          finite = [x for x in samples if math.isfinite(x)]
+          peak = max((abs(x) for x in finite), default=0.0)
+          rms = math.sqrt(sum(x*x for x in finite) / max(1, len(finite)))
+          nonzero = sum(abs(x) > 1e-7 for x in finite)
+          result = {'samples': len(samples), 'finite': len(finite), 'peak': peak, 'rms': rms, 'nonzero': nonzero}
+          print(json.dumps(result))
+          assert len(finite) == len(samples), result
+          assert peak > 1e-6 and nonzero >= 100, result
+          PY
+
       - name: Wrap the plugins
         env:
           RUNTIME_URL: ${{ inputs.runtime || vars.VSTLOADER_RUNTIME_URL || env.DEFAULT_RUNTIME_URL }}
