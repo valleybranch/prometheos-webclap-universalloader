@@ -31,12 +31,12 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    DeleteFileA("build\\COMPANION_DEP.DLL");
+    DeleteFileA("build\\companion_dep.dll");
     check(probePeImports("build\\companion_plugin.dll", probe, error) &&
           contains(probe.missing, "COMPANION_DEP.DLL"),
           "reports_exact_missing_companion");
 
-    check(CopyFileA("build\\companion_dep.fixture", "build\\COMPANION_DEP.DLL", FALSE) != 0,
+    check(CopyFileA("build\\companion_dep.fixture", "build\\companion_dep.dll", FALSE) != 0,
           "restores_companion_fixture");
     probe = {};
     error.clear();
