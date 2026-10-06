@@ -1,0 +1,50 @@
+diff --git a/project/emscripten/boxedwine-shell.js b/project/emscripten/boxedwine-shell.js
+index 6b5e5d11..be9f5b91 100644
+--- a/project/emscripten/boxedwine-shell.js
++++ b/project/emscripten/boxedwine-shell.js
+@@ -31,6 +31,7 @@
+         Config.persist_d_drive = true;
+         Config.showUploadDownload = false;
+         Config.showSaveJITCache = true;
++        Config.serverJitCacheEnabled = true;
+         Config.WorkingDir = "";
+         Config.PlayScript = "";
+         Config.loadDesktop = false;
+@@ -446,6 +447,19 @@
+             return record;
+         }
+ 
++        function getServerJitCacheEnabled() {
++            var enabled = getParameter("server-jit-cache");
++            if (!allowParameterOverride() || enabled === "") {
++                return true;
++            } else if (enabled === "false") {
++                return false;
++            } else if (enabled === "true") {
++                return true;
++            }
++            return true;
++        }
++
+         function getWasmModuleBrokerEnabled() {
+             var value = getParameter("wasmModuleBroker");
+             if (!allowParameterOverride()) {
+@@ -795,6 +809,7 @@
+             Config.PlayScript = getPlayScript();
+             Config.isSoundEnabled = getSound();
+             Config.recordJITCache = getJitRecord();
++            Config.serverJitCacheEnabled = getServerJitCacheEnabled();
+             Config.wasmModuleBrokerEnabled = getWasmModuleBrokerEnabled();
+             Config.audioFreq = getAudioFreq();
+             Config.disableHideCursor = getDisableHideCursor();
+@@ -1525,6 +1540,10 @@ function getJitCacheZipFilename() {
+ // Attempt to fetch the JIT cache zip from the server.  If found, its entries
+ // are imported into IndexedDB and the in-memory cache.
+ function fetchServerJitCache(callback) {
++    if (!Config.serverJitCacheEnabled) {
++        callback();
++        return;
++    }
+     var baseUrl  = (Config.appZipFile && Config.appZipFile.length > 0)
+                    ? Config.locateAppBaseUrl : Config.locateRootBaseUrl;
+     fetch(baseUrl + getJitCacheZipFilename())
