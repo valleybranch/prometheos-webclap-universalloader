@@ -101,7 +101,7 @@ void BuzzMachineInstance::destroy() {
 bool BuzzMachineInstance::load(const std::string &path, double r, int block, std::string &error) {
     close();
     std::fprintf(stderr, "[buzz] LoadLibrary %s begin\n", path.c_str()); std::fflush(stderr);
-    module_ = LoadLibraryA(path.c_str());
+    module_ = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     std::fprintf(stderr, "[buzz] LoadLibrary end %p\n", static_cast<void *>(module_)); std::fflush(stderr);
     if (!module_) {
         error = "LoadLibrary failed for Buzz machine";
