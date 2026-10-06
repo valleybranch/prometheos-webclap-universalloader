@@ -177,6 +177,8 @@ jobs:
           git clone https://github.com/dahlgrenmartin/prometheos-apps.git /tmp/prometheos-apps
           git -C /tmp/prometheos-apps checkout 0372f92028f2ab46114acb149f1e3ef9a6174447
           corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
           pnpm --dir /tmp/prometheos-apps install --frozen-lockfile
           node tests/buzz-remote/build.mjs --buzz /tmp/prometheos-apps/apps/buzz-remote --site dist-mt --plugins build/wraps
           node tests/buzz-remote/run.mjs --scenarios companion --out build/companion-buzz-remote
