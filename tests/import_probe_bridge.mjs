@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 
 const bridge = readFileSync(new URL("../host/bridge.cpp", import.meta.url), "utf8");
 const pluginInstance = readFileSync(new URL("../host/plugin_instance.cpp", import.meta.url), "utf8");
@@ -24,6 +24,10 @@ for (const loader of formatLoaders) {
 
 const env = { ...process.env, WINEARCH: "win32", WINEDEBUG: "-all" };
 execFileSync("wine", ["build/pe_imports_test.exe"], { stdio: "inherit", env });
+
+// The PE test restores the companion for its positive resolution case. Establish
+// this contract test's missing-dependency precondition explicitly.
+rmSync(new URL("../build/COMPANION_DEP.DLL", import.meta.url), { force: true });
 
 const json = execFileSync(
   "wine",
