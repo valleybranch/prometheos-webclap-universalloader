@@ -12,7 +12,7 @@ assert.match(bridge, /probePeImports\(payload,\s*probe,\s*error\)/);
 assert.match(bridge, /importProbeJson\(probe\)/);
 
 const abi = JSON.parse(readFileSync(new URL("../include/vstbridge_abi.json", import.meta.url), "utf8"));
-assert.equal(abi.ops.PROBE_IMPORTS, 8);
+assert.equal(abi.enums.OP_PROBE_IMPORTS, 8);
 assert.match(pluginInstance, /missing-direct-dependency:/);
 assert.match(pluginInstance, /loader-dependency-failure:/);
 assert.match(pluginInstance, /plugin-initialization-failure:/);
