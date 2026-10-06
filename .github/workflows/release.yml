@@ -172,6 +172,15 @@ jobs:
           tar xzOf build/wraps/companion-test.wclap.tar.gz resources/vstloader.txt | grep '^dependency=companion_dep[.]dll'
           tar tzf build/wraps/companion-test.wclap.tar.gz | grep -Fx resources/deps/companion_dep.dll
 
+      - name: Installed companion WebCLAP gate in buzz-remote
+        run: |
+          git clone https://github.com/dahlgrenmartin/prometheos-apps.git /tmp/prometheos-apps
+          git -C /tmp/prometheos-apps checkout 0372f92028f2ab46114acb149f1e3ef9a6174447
+          corepack enable
+          pnpm --dir /tmp/prometheos-apps install --frozen-lockfile
+          node tests/buzz-remote/build.mjs --buzz /tmp/prometheos-apps/apps/buzz-remote --site dist-mt --plugins build/wraps
+          node tests/buzz-remote/run.mjs --scenarios companion --out build/companion-buzz-remote
+
       - name: Stage verified Buzz fixture for browser wrapper
         run: |
           # wrap.mjs reads the plugin from the checkout; the served site is only
