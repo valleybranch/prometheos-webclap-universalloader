@@ -1,5 +1,6 @@
 #include "plugin_instance.h"
 
+#include "buzz_instance.h"
 #include "vst2_instance.h"
 #include "vst3_instance.h"
 
@@ -11,27 +12,18 @@
 void prepareAudioThread() {
     uint32_t csr = 0;
     __asm__ volatile("stmxcsr %0" : "=m"(csr));
-    csr |= 0x8040; // FTZ (bit 15) and DAZ (bit 6)
+    csr |= 0x8040;
     __asm__ volatile("ldmxcsr %0" : : "m"(csr));
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
 
 void PluginInstance::warmUp() {
-    // About 7 s of audio, so the code a song reaches gets translated by the
-    // JIT before the stream starts rather than in the live path:
-    //  1. 8-note chords across the keyboard every quarter second at varied
-    //     velocities, each released as the next starts (voice allocation,
-    //     envelopes, the note path in every register);
-    //  2. with the transport playing, detached chords held 0.2 s and followed
-    //     by 0.8 s of silence, so released voices decay completely before
-    //     they are reused (a song's first chord after a rest reached this
-    //     path live: a 15-50 ms turn at L = 2,048 in buzz-remote).
     const int perQuarter = std::max(1, static_cast<int>(std::lround(rate * 0.25 / block_)));
     const int legatoChords = 10;
     const int legatoBlocks = perQuarter * (legatoChords + 2);
     const int detachedChords = 4;
     const int heldBlocks = std::max(1, static_cast<int>(std::lround(rate * 0.2 / block_)));
-    const int perDetached = perQuarter * 4; // 1 s per chord
+    const int perDetached = perQuarter * 4;
     const int blocks = legatoBlocks + perDetached * detachedChords;
     std::vector<float> in(std::max(1, inPorts_) * 2 * block_), out(outPorts_ * 2 * block_);
     vstb_request request{};
@@ -61,7 +53,7 @@ void PluginInstance::warmUp() {
                 if (chord < legatoChords)
                     for (int v = 0; v < 8; ++v) add(0x90, chordNote(chord, v), velocity(chord, v));
             }
-            if (b == legatoBlocks - 1) add(0xB0, 123, 0); // all notes off
+            if (b == legatoBlocks - 1) add(0xB0, 123, 0);
         } else {
             const int d = b - legatoBlocks;
             const int chord = legatoChords + d / perDetached;
@@ -73,7 +65,6 @@ void PluginInstance::warmUp() {
             if (d % perDetached == heldBlocks)
                 for (int v = 0; v < 8; ++v) add(0x80, chordNote(chord, v), 0);
         }
-        // A decaying saw chord for effects.
         for (int f = 0; f < block_; ++f) {
             const double t = static_cast<double>(b * block_ + f) / rate;
             const float s = static_cast<float>(0.2 * std::exp(-3.0 * std::fmod(t, 1.0)) * (2.0 * std::fmod(t * 110.0, 1.0) - 1.0));
@@ -85,8 +76,6 @@ void PluginInstance::warmUp() {
 }
 
 std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate, int block, std::string &error) {
-    // The module stays loaded for the life of the process (see the
-    // instances' close()), so probing it here costs nothing later.
     HMODULE dll = LoadLibraryA(path.c_str());
     if (!dll) {
         error = "LoadLibrary failed, error " + std::to_string(GetLastError());
@@ -95,10 +84,13 @@ std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate,
     std::unique_ptr<PluginInstance> plugin;
     if (GetProcAddress(dll, "GetPluginFactory")) plugin = std::make_unique<Vst3Instance>();
     else if (GetProcAddress(dll, "VSTPluginMain") || GetProcAddress(dll, "main")) plugin = std::make_unique<Vst2Instance>();
+    else if (GetProcAddress(dll, "GetInfo") && GetProcAddress(dll, "CreateMachine")) plugin = std::make_unique<BuzzMachineInstance>();
     else {
-        error = "neither a VST2 (VSTPluginMain/main) nor a VST3 (GetPluginFactory) plugin";
+        error = "unsupported Windows plugin: expected VST2, VST3 or Buzz GetInfo/CreateMachine exports";
+        FreeLibrary(dll);
         return nullptr;
     }
+    FreeLibrary(dll);
     if (!plugin->load(path, rate, block, error)) return nullptr;
     return plugin;
 }
