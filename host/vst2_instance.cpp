@@ -71,7 +71,7 @@ bool Vst2Instance::load(const std::string &path, double sampleRate, int blockFra
     path_ = path;
     rate = sampleRate;
     block_ = blockFrames;
-    dll_ = LoadLibraryA(path.c_str());
+    dll_ = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!dll_) {
         error = "LoadLibrary failed, error " + std::to_string(GetLastError());
         return false;
