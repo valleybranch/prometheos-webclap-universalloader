@@ -403,6 +403,33 @@ function watchChannel(machineId: string) {
 const results: Record<string, unknown> = {};
 const captures: Record<string, Uint8Array> = {};
 
+/** Installs a companion-bearing WebCLAP and proves buzz-remote creates its runtime instance. */
+async function companionScenario(file = "companion-test.wclap.tar.gz"): Promise<unknown> {
+  const e = await startEngine();
+  const pkg = installed.find((p) => p.source.kind === "local" && p.source.location === file) ?? (await install(file));
+  const installedClass = pkg.manifest.classes[0]!;
+  const classId = installedClass.classId;
+  const inst = machine("companion", classId, 1, 100);
+  const s = song([inst, MASTER], [edge("companion-out", "companion", "master")], []);
+  const started = performance.now();
+  sendSong(e, s);
+  await waitFor(() => runtimeInstance("companion"), 600_000, "the companion WebCLAP to load");
+  const info = runtimeInstance("companion")!;
+  const result = {
+    file,
+    classId,
+    loadSeconds: (performance.now() - started) / 1000,
+    generation: Number(info.generation),
+    channel: Number(info.channel),
+    errors: [...e.errors],
+  };
+  if (result.errors.length) throw new Error(`${file}: runtime errors: ${result.errors.join("; ")}`);
+  results.companion = result;
+  sendSong(e, song([MASTER], [], []));
+  await waitFor(() => !runtimeInstance("companion"), 60_000, "the companion instance to go");
+  return result;
+}
+
 /** The wrapped plugin as a machine playing 8-voice chords; captures for the identity check. */
 async function songScenario(file: string, seconds: number, captureSeconds: number): Promise<unknown> {
   const e = await startEngine();
@@ -573,6 +600,7 @@ function chunk(key: string, offset: number, length: number): string {
 Object.assign(window, {
   vstloaderHarness: {
     install,
+    companionScenario,
     songScenario,
     nullScenario,
     bzwScenario,
