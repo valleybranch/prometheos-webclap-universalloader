@@ -150,7 +150,10 @@ static bool readDescriptor(const char *bundle) {
             *tab1 = 0; *tab2 = 0;
             if (!value[0] || strchr(value, '/') || strchr(value, '\\') || strchr(value, ':') ||
                 strlen(value) < 4 || asciiCaseCmp(value + strlen(value) - 4, ".dll") || !asciiCaseCmp(value, "plugin.dll") ||
-                strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15)) { fclose(f); return false; }
+                strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15) ||
+                asciiCaseCmp(tab2 + 1 + 15, value)) { fclose(f); return false; }
+            for (const char *p = tab1 + 1; *p; ++p)
+                if (!( (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') )) { fclose(f); return false; }
             for (uint32_t i = 0; i < g_desc.dependencyCount; ++i)
                 if (!asciiCaseCmp(g_desc.dependencies[i].name, value)) { fclose(f); return false; }
             vl_dependency_info *d = &g_desc.dependencies[g_desc.dependencyCount++];
@@ -178,16 +181,27 @@ static bool readDescriptor(const char *bundle) {
     return g_desc.id[0] != 0 && g_desc.name[0] != 0;
 }
 
+static void freeDependencies(void) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        free(g_desc.dependencies[i].bytes);
+        g_desc.dependencies[i].bytes = NULL;
+        g_desc.dependencies[i].size = 0;
+    }
+}
+
 static bool loadDependencies(const char *bundle) {
     for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
         vl_dependency_info *d = &g_desc.dependencies[i];
         char path[2200];
         snprintf(path, sizeof path, "%s/%s", bundle, d->resource);
         FILE *f = fopen(path, "rb");
-        if (!f) return false;
-        if (fseek(f, 0, SEEK_END) || (long)(d->size = (uint32_t)ftell(f)) < 0 || fseek(f, 0, SEEK_SET)) { fclose(f); return false; }
-        d->bytes = d->size ? malloc(d->size) : NULL;
-        if (!d->bytes || fread(d->bytes, 1, d->size, f) != d->size) { fclose(f); return false; }
+        if (!f) { freeDependencies(); return false; }
+        if (fseek(f, 0, SEEK_END)) { fclose(f); freeDependencies(); return false; }
+        long size = ftell(f);
+        if (size <= 0 || (uint64_t)size > UINT32_MAX || fseek(f, 0, SEEK_SET)) { fclose(f); freeDependencies(); return false; }
+        d->size = (uint32_t)size;
+        d->bytes = malloc(d->size);
+        if (!d->bytes || fread(d->bytes, 1, d->size, f) != d->size) { fclose(f); freeDependencies(); return false; }
         fclose(f);
     }
     return true;
@@ -972,11 +986,7 @@ static bool entry_init(const char *plugin_path) {
 }
 
 static void entry_deinit(void) {
-    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
-        free(g_desc.dependencies[i].bytes);
-        g_desc.dependencies[i].bytes = NULL;
-        g_desc.dependencies[i].size = 0;
-    }
+    freeDependencies();
     free(g_desc.params);
     g_desc.params = NULL;
 }
