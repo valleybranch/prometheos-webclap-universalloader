@@ -93,31 +93,13 @@ public:
   void *pLI;
 };
 
-class CMachineInterface {
-public:
-  virtual ~CMachineInterface() {}
-  virtual void Init(CMachineDataInput * const) {}
-  virtual void Tick() {}
-  virtual bool Work(float *, int, int const) { return false; }
-  virtual bool WorkMonoToStereo(float *, float *, int, int const) { return false; }
-  virtual void Stop() {}
-  virtual void Save(CMachineDataOutput * const) {}
-  virtual void AttributesChanged() {}
-  virtual void Command(int const) {}
-  virtual void SetNumTracks(int const) {}
-  virtual void MuteTrack(int const) {}
-  virtual bool IsTrackMuted(int const) const { return false; }
-  virtual void MidiNote(int const, int const, int const) {}
-  virtual void Event(dword const) {}
-  virtual char const *DescribeValue(int const, int const) { return nullptr; }
-  virtual CEnvelopeInfo const **GetEnvelopeInfos() { return nullptr; }
-  virtual bool PlayWave(int const, int const, float const) { return false; }
-  virtual void StopWave() {}
-  virtual int GetWaveEnvPlayPos(int const) { return -1; }
-
-  void *GlobalVals = nullptr;
-  void *TrackVals = nullptr;
-  int *AttrVals = nullptr;
-  CMasterInfo *pMasterInfo = nullptr;
-  CMICallbacks *pCB = nullptr;
+struct CMachineInterface {
+  /* MSVC x86 object layout. Virtual calls are made by explicit slot number in
+   * buzz_instance.cpp; MinGW must not impose its own destructor/vtable ABI. */
+  void **vtable;
+  void *GlobalVals;
+  void *TrackVals;
+  int *AttrVals;
+  CMasterInfo *pMasterInfo;
+  CMICallbacks *pCB;
 };
