@@ -19,7 +19,7 @@ diff --git a/project/emscripten/boxedwine-shell.js b/project/emscripten/boxedwin
              Config.wasmModuleBrokerEnabled = getWasmModuleBrokerEnabled();
              Config.audioFreq = getAudioFreq();
              Config.disableHideCursor = getDisableHideCursor();
-@@ -376,7 +378,20 @@
+@@ -376,7 +378,19 @@
              }
              return record;
          }
