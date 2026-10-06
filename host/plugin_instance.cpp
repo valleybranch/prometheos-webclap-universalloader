@@ -1,6 +1,7 @@
 #include "plugin_instance.h"
 
 #include "buzz_instance.h"
+#include "pe_imports.h"
 #include "vst2_instance.h"
 #include "vst3_instance.h"
 
@@ -76,9 +77,32 @@ void PluginInstance::warmUp() {
 }
 
 std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate, int block, std::string &error) {
-    HMODULE dll = LoadLibraryA(path.c_str());
+    HMODULE dll = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!dll) {
-        error = "LoadLibrary failed, error " + std::to_string(GetLastError());
+        const DWORD code = GetLastError();
+        if (code == ERROR_MOD_NOT_FOUND) {
+            ImportProbe probe;
+            std::string probeError;
+            if (probePeImports(path, probe, probeError)) {
+                if (!probe.missing.empty()) {
+                    error = "missing-direct-dependency:";
+                    for (size_t i = 0; i < probe.missing.size(); ++i) {
+                        if (i) error += ",";
+                        error += probe.missing[i];
+                    }
+                } else {
+                    error = "loader-dependency-failure:error 126; direct imports=";
+                    for (size_t i = 0; i < probe.imports.size(); ++i) {
+                        if (i) error += ",";
+                        error += probe.imports[i].name;
+                    }
+                }
+            } else {
+                error = "loader-dependency-failure:error 126; import probe failed: " + probeError;
+            }
+        } else {
+            error = "LoadLibraryEx failed, error " + std::to_string(code);
+        }
         return nullptr;
     }
     std::unique_ptr<PluginInstance> plugin;
