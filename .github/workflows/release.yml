@@ -158,6 +158,20 @@ jobs:
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium
 
+      - name: Companion DLL browser and installed bundle gate
+        env:
+          RUNTIME_URL: ${{ inputs.runtime || vars.VSTLOADER_RUNTIME_URL || env.DEFAULT_RUNTIME_URL }}
+        run: |
+          python3 serve.py 8080 dist-mt > /tmp/companion-serve.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          COMPANION_PRIMARY=build/companion_plugin.dll COMPANION_DEP=build/companion_dep.dll node tests/browser_render.mjs http://127.0.0.1:8080 ""
+          mkdir -p build/wraps
+          node wrap/wrap.mjs build/companion_plugin.dll --dep build/companion_dep.dll --site http://127.0.0.1:8080 --runtime "$RUNTIME_URL" --out build/wraps/companion-test.wclap.tar.gz
+          tar xzOf build/wraps/companion-test.wclap.tar.gz resources/vstloader.txt | grep '^dependency=companion_dep[.]dll'
+          tar tzf build/wraps/companion-test.wclap.tar.gz | grep -Fx resources/deps/companion_dep.dll
+
       - name: Stage verified Buzz fixture for browser wrapper
         run: |
           # wrap.mjs reads the plugin from the checkout; the served site is only
