@@ -7,6 +7,10 @@
 #include <sstream>
 
 namespace {
+static std::string jsonString(const char *text) {
+    return "\"" + jsonEscape(text ? std::string(text) : std::string()) + "\"";
+}
+
 class MemoryInput final : public CMachineDataInput {
 public:
     MemoryInput(const uint8_t *data, size_t size) : p_(data), left_(size) {}
