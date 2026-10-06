@@ -1,4 +1,5 @@
 #include "vst3_instance.h"
+#include "plugin_instance.h"
 
 #include "json.h"
 
@@ -450,7 +451,7 @@ bool Vst3Instance::load(const std::string &path, double sampleRate, int blockFra
     block_ = blockFrames;
     m.dll = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!m.dll) {
-        error = "LoadLibrary failed, error " + std::to_string(GetLastError());
+        error = classifyPluginLoadFailure(path, GetLastError());
         return false;
     }
     {
