@@ -23,14 +23,22 @@ if (companionPrimary && companionDep) {
   const primary = readFileSync(companionPrimary).toString("base64");
   const depBytes = readFileSync(companionDep).toString("base64");
   const depName = basename(companionDep);
-  const result = await page.evaluate(async ({ primary, depName, depBytes }) => {
+  const runtimePage = await browser.newPage();
+  runtimePage.on("pageerror", (e) => console.log("runtime pageerror:", e.message));
+  await runtimePage.goto(`${base}/runtime/index.html?boot=1`);
+  await runtimePage.waitForFunction(
+    () => window.vstloaderRuntime?.state.phase === "ready" || window.vstloaderRuntime?.state.phase === "failed",
+    null, { timeout: 15 * 60 * 1000 },
+  );
+  const result = await runtimePage.evaluate(async ({ primary, depName, depBytes }) => {
     const decode = (value) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
     const runtime = window.vstloaderRuntime;
-    if (!runtime) throw new Error("vstloader runtime diagnostics are unavailable on demo page");
+    if (runtime.state.phase !== "ready") throw new Error(runtime.state.error || "vstloader runtime failed to boot");
     const first = await runtime.probeBinary(decode(primary), []);
     const second = await runtime.probeBinary(decode(primary), [{ name: depName, bytes: decode(depBytes) }]);
     return { first: first.probe, second: second.probe };
   }, { primary, depName, depBytes });
+  await runtimePage.close();
   const missing = result.first.missing.map((name) => name.toLowerCase());
   const ok = missing.length === 1 && missing[0] === "companion_dep.dll" && result.second.missing.length === 0;
   failures += ok ? 0 : 1;
