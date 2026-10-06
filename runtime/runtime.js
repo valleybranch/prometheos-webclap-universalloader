@@ -230,8 +230,14 @@ class Instance {
     if (this.dependencyError) {
       const error = this.dependencyError;
       this.dependencyError = null;
+      this.dependencies.clear();
       throw new Error(`invalid companion dependency batch: ${error}`);
     }
+    // A HELLO consumes the dependency frames that preceded it. Snapshot and
+    // clear them before validation/loading so a failed HELLO can be retried
+    // with the shim's freshly re-sent dependency batch.
+    const dependencies = [...this.dependencies.values()];
+    this.dependencies.clear();
     if (body.length < HELLO_BYTES) throw new Error("short hello");
     const hello = parseHello(body);
     if (body.length !== HELLO_BYTES + hello.dllSize) throw new Error("malformed hello");
@@ -243,7 +249,7 @@ class Instance {
     this.hello = hello;
     const started = performance.now();
     await upload(hello.sha256, binary);
-    for (const dep of this.dependencies.values())
+    for (const dep of dependencies)
       await upload(`${hello.sha256}:${dep.name.toLowerCase()}:${dep.sha256}`, dep.bytes, `${guestDir(hello.sha256)}\\${dep.name}`);
     this.channel = freeChannel();
     this.describe = await loadInto(this.channel, hello.sha256, hello.sampleRate, hello.blockFrames);
@@ -256,7 +262,6 @@ class Instance {
     this.attachStream();
     log(`${this.describe.name}: loaded on channel ${this.channel} in ${((this.loadedAt - started) / 1000).toFixed(1)} s`, "info", this.id);
     await this.reportState();
-    this.dependencies.clear();
     this.dependencyError = null;
   }
 
