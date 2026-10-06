@@ -156,8 +156,10 @@ jobs:
 
       - name: Stage verified Buzz fixture for browser wrapper
         run: |
-          mkdir -p dist-mt/app
-          cp 'build/FSM Kick XP.dll' 'dist-mt/app/FSM Kick XP.dll'
+          # wrap.mjs reads the plugin from the checkout; the served site is only
+          # the runtime used to describe it.
+          mkdir -p app
+          cp 'build/FSM Kick XP.dll' 'app/FSM Kick XP.dll'
 
       - name: Wrap the plugins
         env:
