@@ -43,7 +43,7 @@
 - Produces: `export interface CompanionDll { name: string; sha256: string; bytes: Uint8Array; sourcePath?: string }`.
 - Produces: `makeCompanionDll(name: string, bytes: Uint8Array, sourcePath?: string): Promise<CompanionDll>`, which computes lowercase SHA-256 with Web Crypto.
 - Produces: `export interface ImportProbeResult { imports: Array<{name:string; resolved:boolean; path:string}>; missing: string[] }`.
-- Produces: `findSiblingDependencies(fs, pluginPath, missingNames): Promise<Array<{name:string; path:string}>>`.
+- Produces: `findSiblingDependencies(fs, directory, missingNames): Promise<Array<{name:string; path:string}>>`; the caller supplies `directoryOf(pluginPath)` so `dependencies.ts` does not import `vstloader.ts`.
 - Changes runtime interface to `probeBinary(bytes, dependencies?: CompanionDll[]): Promise<{sha256:string; probe:ImportProbeResult}>`.
 - Changes `describeBinary(bytes, dependencies?: CompanionDll[])`.
 - Changes bundle tools to accept `dependencies?: CompanionDll[]`.
@@ -59,7 +59,7 @@ Expected: FAIL because `findSiblingDependencies` does not exist.
 
 - [ ] **Step 3: Implement hashing and sibling discovery**
 
-Implement `makeCompanionDll` with `crypto.subtle.digest("SHA-256", bytes)`. Implement `findSiblingDependencies` with `directoryOf(pluginPath)`, one `readDir` call, and exact normalized basename comparison. Return only file entries matching requested names; throw a descriptive ambiguity error if more than one VFS entry normalizes to the same requested basename.
+Implement `makeCompanionDll` with `crypto.subtle.digest("SHA-256", bytes)`. Implement `findSiblingDependencies` with the supplied directory, one `readDir` call, and exact normalized basename comparison. Return only file entries matching requested names; throw a descriptive ambiguity error if more than one VFS entry normalizes to the same requested basename.
 
 - [ ] **Step 4: Update runtime/bundle TypeScript contracts**
 
