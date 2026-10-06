@@ -96,7 +96,7 @@ jobs:
           i686-w64-mingw32-objdump -p build/vsthost.exe | grep 'DLL Name'
           HOST_WIN="Z:${PWD//\//\\}\\build\\vsthost.exe"
           DLL_WIN="Z:${PWD//\//\\}\\build\\FSM Kick XP.dll"
-          WINEARCH=win32 WINEPREFIX="$RUNNER_TEMP/wine32-prefix" WINEDEBUG=-all \
+          timeout 45s env WINEARCH=win32 WINEPREFIX="$RUNNER_TEMP/wine32-prefix" WINEDEBUG=-all \
             /usr/lib/wine/wine "$HOST_WIN" --replay "$DLL_WIN" \
             'Z:\\tmp\\fsm-kick-xp.capture' 'Z:\\tmp\\fsm-kick-xp.f32'
           python3 - <<'PY'
