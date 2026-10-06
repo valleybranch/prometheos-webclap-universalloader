@@ -149,9 +149,6 @@ void BuzzMachineInstance::process(const vstb_request &request, const float *inpu
     if (!machine_) return;
     const int frames = std::min<int>(request.frames, block_);
     master_.BeatsPerMin = static_cast<int>(std::lround(request.tempo > 0.0 ? request.tempo : 126.0));
-    master_.SamplesPerTick = std::max(1, master_.SamplesPerSec * 60 / std::max(1, master_.BeatsPerMin * master_.TicksPerBeat));
-    master_.TicksPerSec = static_cast<float>(master_.SamplesPerSec) / master_.SamplesPerTick;
-    master_.PosInTick = static_cast<int>(std::fmod(std::max(0.0, request.samplePos), static_cast<double>(master_.SamplesPerTick)));
 
     if (inPorts_ && inputs) {
         for (int i = 0; i < frames; ++i)
@@ -160,39 +157,97 @@ void BuzzMachineInstance::process(const vstb_request &request, const float *inpu
         std::fill(mono_.begin(), mono_.begin() + frames, 0.0f);
     }
 
-    bool doTick = false;
+    auto setRaw = [&](int track, int index, int raw) {
+        if (track < 0) {
+            if (index < 0 || index >= info_->numGlobalParameters || !machine_->GlobalVals) return;
+            size_t off = 0;
+            for (int p = 0; p < index; ++p) off += paramSize(*info_->Parameters[p]);
+            const auto &param = *info_->Parameters[index];
+            auto *dst = static_cast<uint8_t *>(machine_->GlobalVals) + off;
+            dst[0] = static_cast<uint8_t>(raw & 0xff);
+            if (paramSize(param) == 2) dst[1] = static_cast<uint8_t>((raw >> 8) & 0xff);
+            return;
+        }
+        if (track >= info_->maxTracks || index < 0 || index >= info_->numTrackParameters || !machine_->TrackVals) return;
+        size_t stride = 0, off = 0;
+        for (int p = 0; p < info_->numTrackParameters; ++p) {
+            const auto &param = *info_->Parameters[info_->numGlobalParameters + p];
+            if (p < index) off += paramSize(param);
+            stride += paramSize(param);
+        }
+        const auto &param = *info_->Parameters[info_->numGlobalParameters + index];
+        auto *dst = static_cast<uint8_t *>(machine_->TrackVals) + track * stride + off;
+        dst[0] = static_cast<uint8_t>(raw & 0xff);
+        if (paramSize(param) == 2) dst[1] = static_cast<uint8_t>((raw >> 8) & 0xff);
+    };
+
+    auto render = [&](int from, int count) {
+        if (count <= 0) return;
+        master_.PosInTick = std::max(0, master_.PosInTick);
+        const int mode = inPorts_ ? WM_READWRITE : WM_WRITE;
+        machine_->Work(mono_.data() + from, count, mode);
+        for (int i = from; i < from + count; ++i) {
+            const float s = mono_[i] / 32768.0f;
+            outputs[i] = s;
+            outputs[block_ + i] = s;
+        }
+        master_.PosInTick += count;
+        if (master_.SamplesPerTick > 0) master_.PosInTick %= master_.SamplesPerTick;
+    };
+
+    int cursor = 0;
     for (uint32_t i = 0; i < request.eventCount; ++i) {
         const auto &ev = request.events[i];
-        if (ev.offset != 0) continue;
-        if (ev.type == VSTB_EV_MIDI && (ev.midi[0] & 0xf0) == 0x90 && ev.midi[2]) {
-            machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], ev.midi[2]);
-        } else if (ev.type == VSTB_EV_MIDI && (ev.midi[0] & 0xf0) == 0x80) {
-            machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], 0);
-        } else if (ev.type == VSTB_EV_PARAM && ev.index < static_cast<uint16_t>(info_->numGlobalParameters)) {
-            size_t off = 0;
-            for (int p = 0; p < ev.index; ++p) off += paramSize(*info_->Parameters[p]);
-            const auto &param = *info_->Parameters[ev.index];
-            const int raw = param.MinValue + static_cast<int>(std::lround(ev.value * (param.MaxValue - param.MinValue)));
-            auto *g = static_cast<uint8_t *>(machine_->GlobalVals);
-            if (g) {
-                g[off] = static_cast<uint8_t>(raw & 0xff);
-                if (paramSize(param) == 2) g[off + 1] = static_cast<uint8_t>((raw >> 8) & 0xff);
-                doTick = true;
+        const int at = std::min<int>(frames, ev.offset);
+        render(cursor, at - cursor);
+        cursor = at;
+        switch (ev.type) {
+        case VSTB_EV_BUZZ_VALUE: {
+            const int encodedTrack = int(ev.midi[0]) | (int(ev.midi[1]) << 8);
+            setRaw(encodedTrack - 1, ev.index, static_cast<int>(std::lround(ev.value)));
+            break;
+        }
+        case VSTB_EV_BUZZ_TICK:
+            machine_->Tick();
+            clearNoValues();
+            master_.PosInTick = 0;
+            break;
+        case VSTB_EV_BUZZ_TRACKS:
+            tracks_ = std::clamp(static_cast<int>(std::lround(ev.value)), info_->minTracks, info_->maxTracks);
+            machine_->SetNumTracks(tracks_);
+            break;
+        case VSTB_EV_BUZZ_ATTR:
+            if (ev.index < info_->numAttributes && machine_->AttrVals) {
+                const auto &a = *info_->Attributes[ev.index];
+                machine_->AttrVals[ev.index] = std::clamp(static_cast<int>(std::lround(ev.value)), a.MinValue, a.MaxValue);
+                machine_->AttributesChanged();
             }
+            break;
+        case VSTB_EV_BUZZ_MASTER:
+            master_.TicksPerBeat = std::max(1, static_cast<int>(ev.index));
+            master_.SamplesPerTick = std::max(1, static_cast<int>(std::lround(ev.value)));
+            master_.TicksPerSec = static_cast<float>(master_.SamplesPerSec) / master_.SamplesPerTick;
+            break;
+        case VSTB_EV_BUZZ_STOP:
+            machine_->Stop();
+            break;
+        case VSTB_EV_MIDI:
+            if ((ev.midi[0] & 0xf0) == 0x90)
+                machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], ev.midi[2]);
+            else if ((ev.midi[0] & 0xf0) == 0x80)
+                machine_->MidiNote(ev.midi[0] & 0x0f, ev.midi[1], 0);
+            break;
+        case VSTB_EV_PARAM:
+            if (ev.index < info_->numGlobalParameters) {
+                const auto &p = *info_->Parameters[ev.index];
+                setRaw(-1, ev.index, p.MinValue + static_cast<int>(std::lround(ev.value * (p.MaxValue - p.MinValue))));
+            }
+            break;
+        default:
+            break;
         }
     }
-    if (doTick) {
-        machine_->Tick();
-        clearNoValues();
-    }
-
-    const int mode = inPorts_ ? WM_READWRITE : WM_WRITE;
-    machine_->Work(mono_.data(), frames, mode);
-    for (int i = 0; i < frames; ++i) {
-        const float s = mono_[i] / 32768.0f;
-        outputs[i] = s;
-        outputs[block_ + i] = s;
-    }
+    render(cursor, frames - cursor);
 }
 
 std::string BuzzMachineInstance::describeJson() {
