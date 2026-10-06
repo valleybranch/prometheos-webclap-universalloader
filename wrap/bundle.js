@@ -19,6 +19,25 @@ export function descriptor({ sha256, describe, runtime, fileName = "" }) {
   const stem = fileName.replace(/^.*[\\/]/, "").replace(/\.(dll|vst3)$/i, "");
   const version = describe.versionString || (describe.vendorVersion ? String(describe.vendorVersion) : "") || "1.0.0";
   const isBuzz = describe.format === "buzz";
+  const buzzType = (n) => ["note", "switch", "byte", "word"][n] || "byte";
+  const buzzLayout = isBuzz ? JSON.stringify({
+    name: describe.name || stem || "Buzz machine",
+    author: describe.vendor || "",
+    type: describe.synth ? "generator" : "effect",
+    minTracks: describe.minTracks | 0,
+    maxTracks: describe.maxTracks | 0,
+    globals: (describe.params || []).map((p) => ({
+      type: buzzType(p.buzzType), name: p.name || "", description: p.description || p.display || "",
+      minValue: p.minValue | 0, maxValue: p.maxValue | 0, noValue: p.noValue | 0,
+      flags: p.flags | 0, defValue: p.defValue | 0,
+    })),
+    tracks: (describe.trackParams || []).map((p) => ({
+      type: buzzType(p.buzzType), name: p.name || "", description: p.description || "",
+      minValue: p.minValue | 0, maxValue: p.maxValue | 0, noValue: p.noValue | 0,
+      flags: p.flags | 0, defValue: p.defValue | 0,
+    })),
+    attributes: describe.attributes || [],
+  }) : "";
   const lines = [
     `id=prometheos.${isBuzz ? "buzzloader" : "vstloader"}.${sha256.slice(0, 16)}`,
     `name=${clean(describe.name) || stem || "Windows plugin"}`,
@@ -36,6 +55,7 @@ export function descriptor({ sha256, describe, runtime, fileName = "" }) {
     "block=256",
     ...(isBuzz ? [
       `buzzName=${clean(describe.name)}`,
+      `buzzLayout=${buzzLayout}`,
       `minTracks=${describe.minTracks | 0}`,
       `maxTracks=${describe.maxTracks | 0}`,
       ...((describe.trackParams || []).map((p) => `buzzTrack=${clean(p.name)}\t${p.buzzType}\t${p.minValue}\t${p.maxValue}\t${p.noValue}\t${p.defValue}`)),
