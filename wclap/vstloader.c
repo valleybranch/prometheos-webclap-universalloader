@@ -114,6 +114,7 @@ static bool readDescriptor(const char *bundle) {
     if (!f) return false;
     memset(&g_desc, 0, sizeof g_desc);
     g_desc.params = calloc(MAX_PARAMS, sizeof(vl_param_info));
+    if (!g_desc.params) { fclose(f); return false; }
     g_desc.outPorts = 1;
     g_desc.bridgeLatency = 2048;
     g_desc.blockFrames = 256;
@@ -143,19 +144,19 @@ static bool readDescriptor(const char *bundle) {
         else if (!strcmp(key, "bridgeLatency")) g_desc.bridgeLatency = (uint32_t)atoi(value);
         else if (!strcmp(key, "block")) g_desc.blockFrames = (uint32_t)atoi(value);
         else if (!strcmp(key, "dependency")) {
-            if (g_desc.dependencyCount >= MAX_DEPENDENCIES) { fclose(f); return false; }
+            if (g_desc.dependencyCount >= MAX_DEPENDENCIES) goto malformed;
             char *tab1 = strchr(value, '\t');
             char *tab2 = tab1 ? strchr(tab1 + 1, '\t') : NULL;
-            if (!tab1 || !tab2) { fclose(f); return false; }
+            if (!tab1 || !tab2) goto malformed;
             *tab1 = 0; *tab2 = 0;
             if (!value[0] || strchr(value, '/') || strchr(value, '\\') || strchr(value, ':') ||
                 strlen(value) < 4 || asciiCaseCmp(value + strlen(value) - 4, ".dll") || !asciiCaseCmp(value, "plugin.dll") ||
                 strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15) ||
-                asciiCaseCmp(tab2 + 1 + 15, value)) { fclose(f); return false; }
+                asciiCaseCmp(tab2 + 1 + 15, value)) goto malformed;
             for (const char *p = tab1 + 1; *p; ++p)
-                if (!( (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') )) { fclose(f); return false; }
+                if (!( (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') )) goto malformed;
             for (uint32_t i = 0; i < g_desc.dependencyCount; ++i)
-                if (!asciiCaseCmp(g_desc.dependencies[i].name, value)) { fclose(f); return false; }
+                if (!asciiCaseCmp(g_desc.dependencies[i].name, value)) goto malformed;
             vl_dependency_info *d = &g_desc.dependencies[g_desc.dependencyCount++];
             copyField(d->name, sizeof d->name, value);
             copyField(d->sha256, sizeof d->sha256, tab1 + 1);
@@ -173,12 +174,16 @@ static bool readDescriptor(const char *bundle) {
             if (!(p->defaultValue >= 0.0 && p->defaultValue <= 1.0)) p->defaultValue = 0.0;
         }
     }
-    fclose(f);
     if (g_desc.inPorts > MAX_PORTS) g_desc.inPorts = MAX_PORTS;
     if (g_desc.outPorts > MAX_PORTS) g_desc.outPorts = MAX_PORTS;
     if (g_desc.outPorts < 1) g_desc.outPorts = 1;
     if (g_desc.blockFrames == 0 || g_desc.blockFrames > VSTB_RING_FRAMES / 8) g_desc.blockFrames = 256;
-    return g_desc.id[0] != 0 && g_desc.name[0] != 0;
+    if (g_desc.id[0] != 0 && g_desc.name[0] != 0) return true;
+malformed:
+    fclose(f);
+    free(g_desc.params);
+    g_desc.params = NULL;
+    return false;
 }
 
 static void freeDependencies(void) {
