@@ -144,12 +144,13 @@ git commit -m "feat: expose plugin import probing over vstbridge"
 - Modify: `wrap/bundle.js`
 - Modify: `wrap/wrap.mjs`
 - Modify: `runtime/wrap.js`
+- Modify: `build.sh`
 - Create: `tests/dependency-bundle-contract.mjs`
 - Create: `tests/runtime-dependency-contract.mjs`
 
 **Interfaces:**
 - Produces JS type shape: `{ name: string, sha256: string, bytes: Uint8Array }`.
-- Produces shared helpers `sha256Hex(bytes): Promise<string>` and `normalizeDependencies(dependencies): Promise<Dependency[]>` in `runtime/dependencies.js`.
+- Produces shared helpers `assertX86Pe(bytes, fileName): void`, `sha256Hex(bytes): Promise<string>`, and `normalizeDependencies(dependencies): Promise<Dependency[]>` in `runtime/dependencies.js`.
 - Produces: `window.vstloaderRuntime.probeBinary(pluginBytes, dependencies = [])`.
 - Changes: `describeBinary(pluginBytes, dependencies = [])` while keeping the one-argument call valid.
 - Changes: `buildBundle({ ..., dependencies = [] })`.
@@ -166,30 +167,34 @@ Expected: FAIL because `buildBundle` ignores dependencies.
 
 - [ ] **Step 3: Implement shared dependency hashing/normalization**
 
-Create `runtime/dependencies.js` with async `sha256Hex(bytes)` and `normalizeDependencies(dependencies)`. Validate basename/extension/uniqueness there, compute each payload hash with Web Crypto, and reject a supplied SHA-256 that is not 64 lowercase hex or does not match the bytes. `wrap/bundle.js` and `runtime/runtime.js` both consume this module; `checkBinary` still performs x86 PE validation.
+Create `runtime/dependencies.js` with `assertX86Pe(bytes, fileName)`, async `sha256Hex(bytes)`, and `normalizeDependencies(dependencies)`. Move the generic PE32/x86 checks from `wrap/bundle.js` into `assertX86Pe`; keep `checkBinary` exported from `bundle.js` as the public wrapper that calls `assertX86Pe` and then returns `vst3` or `windows-dll`. Validate dependency basename/extension/uniqueness, x86 PE format, and SHA integrity in `normalizeDependencies`. `wrap/bundle.js` imports `../runtime/dependencies.js`; `runtime/runtime.js` imports `./dependencies.js`.
 
-- [ ] **Step 4: Extend descriptor/tar construction**
+- [ ] **Step 4: Ship the shared module with every universal runtime build**
+
+Add `runtime/dependencies.js` to `build.sh`'s explicit runtime copy list so deployed `runtime.js` and the copied `bundle.js` resolve the same module.
+
+- [ ] **Step 5: Extend descriptor/tar construction**
 
 Emit sorted repeated `dependency=` lines and matching `resources/deps/<basename>` tar entries. Do not emit dependency lines for an empty list.
 
-- [ ] **Step 5: Write failing runtime probe tests**
+- [ ] **Step 6: Write failing runtime probe tests**
 
 Stub `ControlClient` and assert `probeBinary` uploads primary + companions into `C:\\winvst\\<plugin-sha>\\`, then calls op 8. Assert the same guest path+SHA upload is cached within one runtime session.
 
-- [ ] **Step 6: Implement `probeBinary` and dependency-aware `describeBinary`**
+- [ ] **Step 7: Implement `probeBinary` and dependency-aware `describeBinary`**
 
 Compute the primary SHA, normalize dependencies, validate every companion as x86 PE with `checkBinary`, upload `plugin.dll` plus companion basenames into the SHA directory via `VSTB_OP_PUT_FILE`, invoke `VSTB_OP_PROBE_IMPORTS`, and block `VSTB_OP_LOAD` while `missing.length > 0`.
 
-- [ ] **Step 7: Add standalone wrapper dependency inputs**
+- [ ] **Step 8: Add standalone wrapper dependency inputs**
 
 Extend `wrap/wrap.mjs` with repeatable `--dep <path-to-dll>`. Compute each dependency SHA with `sha256Hex`, pass the same collection to `describeBinary` inside Chromium and `buildBundle` outside Chromium, and document the option in its usage text. Keep the no-`--dep` CLI behavior unchanged.
 
-- [ ] **Step 8: Run runtime/bundle tests**
+- [ ] **Step 9: Run runtime/bundle tests**
 
 Run: `node tests/dependency-bundle-contract.mjs && node tests/runtime-dependency-contract.mjs`  
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add runtime wrap tests
