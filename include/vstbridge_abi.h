@@ -103,6 +103,12 @@ enum {
     VSTB_EV_MIDI = 1,    /* midi[0..2]: a short MIDI message */
     VSTB_EV_PARAM = 2,   /* index: parameter, value: normalized 0..1 */
     VSTB_EV_PROGRAM = 3, /* index: program number */
+    VSTB_EV_BUZZ_VALUE = 16,  /* index: parameter, value: raw integer; midi[0..1]: track+1, 0=global */
+    VSTB_EV_BUZZ_TICK = 17,   /* offset: exact Buzz tick boundary */
+    VSTB_EV_BUZZ_TRACKS = 18, /* value: active track count */
+    VSTB_EV_BUZZ_ATTR = 19,   /* index: attribute, value: raw integer */
+    VSTB_EV_BUZZ_MASTER = 20, /* index: ticks/beat, value: exact samples/tick */
+    VSTB_EV_BUZZ_STOP = 21,
 };
 
 /* vstb_request.flags */
