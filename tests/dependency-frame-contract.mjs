@@ -42,5 +42,6 @@ assert.match(runtime, /case Op\.DEPENDENCY:[\s\S]*addDependency\(body\)/);
 assert.match(runtime, /dependency integrity error:/);
 assert.match(runtime, /this\.dependencies\.clear\(\);[\s\S]*this\.dependencyError/);
 assert.match(runtime, /if \(this\.dependencyError\)[\s\S]*invalid companion dependency batch/);
+assert.match(runtime, /const dependencies = \[\.\.\.this\.dependencies\.values\(\)\];[\s\S]*this\.dependencies\.clear\(\);[\s\S]*for \(const dep of dependencies\)/);
 assert.match(runtime, /await sha256Hex\(binary\)[\s\S]*plugin integrity error[\s\S]*await upload\(hello\.sha256, binary\)[\s\S]*await upload\([\s\S]*dep\.bytes[\s\S]*this\.channel = freeChannel\(\)[\s\S]*loadInto/);
 console.log("dependency frame contract: ok");
