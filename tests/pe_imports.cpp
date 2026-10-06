@@ -36,7 +36,8 @@ int main(int argc, char **argv) {
           contains(probe.missing, "COMPANION_DEP.DLL"),
           "reports_exact_missing_companion");
 
-    CopyFileA("build\\companion_dep.dll", "build\\COMPANION_DEP.DLL", FALSE);
+    check(CopyFileA("build\\companion_dep.fixture", "build\\COMPANION_DEP.DLL", FALSE) != 0,
+          "restores_companion_fixture");
     probe = {};
     error.clear();
     check(probePeImports("build\\companion_plugin.dll", probe, error) &&
