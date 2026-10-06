@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 #include <sstream>
 
 namespace {
@@ -58,7 +59,9 @@ void BuzzMachineInstance::BuzzCallbacks::MessageBox(char const *text) { lastMess
 int BuzzMachineInstance::paramSize(const CMachineParameter &p) { return p.Type == pt_word ? 2 : 1; }
 
 bool BuzzMachineInstance::create(std::string &error) {
+    std::fprintf(stderr, "[buzz] CreateMachine begin\n"); std::fflush(stderr);
     machine_ = createMachine_ ? createMachine_() : nullptr;
+    std::fprintf(stderr, "[buzz] CreateMachine end %p\n", static_cast<void *>(machine_)); std::fflush(stderr);
     if (!machine_) {
         error = "Buzz CreateMachine returned null";
         return false;
@@ -80,9 +83,13 @@ bool BuzzMachineInstance::create(std::string &error) {
 
     tracks_ = info_->minTracks;
     clearNoValues();
+    std::fprintf(stderr, "[buzz] Init begin\n"); std::fflush(stderr);
     machineCall<void>(machine_, 1, static_cast<CMachineDataInput *>(nullptr));
+    std::fprintf(stderr, "[buzz] Init end; AttributesChanged begin\n"); std::fflush(stderr);
     machineCall<void>(machine_, 7);
+    std::fprintf(stderr, "[buzz] AttributesChanged end; SetNumTracks(%d) begin\n", tracks_); std::fflush(stderr);
     machineCall<void>(machine_, 9, tracks_);
+    std::fprintf(stderr, "[buzz] SetNumTracks end\n"); std::fflush(stderr);
     return true;
 }
 
@@ -93,7 +100,9 @@ void BuzzMachineInstance::destroy() {
 
 bool BuzzMachineInstance::load(const std::string &path, double r, int block, std::string &error) {
     close();
+    std::fprintf(stderr, "[buzz] LoadLibrary %s begin\n", path.c_str()); std::fflush(stderr);
     module_ = LoadLibraryA(path.c_str());
+    std::fprintf(stderr, "[buzz] LoadLibrary end %p\n", static_cast<void *>(module_)); std::fflush(stderr);
     if (!module_) {
         error = "LoadLibrary failed for Buzz machine";
         return false;
@@ -105,7 +114,9 @@ bool BuzzMachineInstance::load(const std::string &path, double r, int block, std
         close();
         return false;
     }
+    std::fprintf(stderr, "[buzz] GetInfo begin\n"); std::fflush(stderr);
     info_ = getInfo_();
+    std::fprintf(stderr, "[buzz] GetInfo end %p\n", static_cast<const void *>(info_)); std::fflush(stderr);
     if (!info_) {
         error = "Buzz GetInfo returned null";
         close();
