@@ -1,0 +1,19 @@
+diff --git a/lib/sdl2/src/video/SDL_video.c b/lib/sdl2/src/video/SDL_video.c
+index 6e6c15d1..2b25f98d 100644
+--- a/lib/sdl2/src/video/SDL_video.c
++++ b/lib/sdl2/src/video/SDL_video.c
+@@ -4287,7 +4287,13 @@ SDL_ShowSimpleMessageBox(Uint32 flags, const char *title, const char *message, S
+        that can block, but for the most common case (SDL_ShowSimpleMessageBox),
+        we can use the standard Javascript alert() function. */
+     EM_ASM_({
+-        alert(UTF8ToString($0) + "\n\n" + UTF8ToString($1));
++        var text = UTF8ToString($0) + "\n\n" + UTF8ToString($1);
++        if (typeof alert === "function") {
++            alert(text);
++        } else if (typeof console !== "undefined" &&
++                   typeof console.error === "function") {
++            console.error(text);
++        }
+     }, title, message);
+     return 0;
+ #else
