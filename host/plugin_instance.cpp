@@ -115,6 +115,12 @@ std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate,
         return nullptr;
     }
     FreeLibrary(dll);
-    if (!plugin->load(path, rate, block, error)) return nullptr;
+    if (!plugin->load(path, rate, block, error)) {
+        if (error.rfind("missing-direct-dependency:", 0) != 0 &&
+            error.rfind("loader-dependency-failure:", 0) != 0 &&
+            error.rfind("plugin-initialization-failure:", 0) != 0)
+            error = "plugin-initialization-failure:" + error;
+        return nullptr;
+    }
     return plugin;
 }
