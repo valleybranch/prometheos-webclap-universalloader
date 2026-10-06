@@ -1,7 +1,7 @@
 # Native Windows Plugin Companion-DLL Compatibility Design
 
 Date: 2026-10-06  
-Status: Design approved in chat; awaiting written-spec review  
+Status: Approved 2026-10-06  
 Primary repository: `valleybranch/prometheos-webclap-universalloader`  
 Consumer repository: `dahlgrenmartin/prometheos-apps`
 
