@@ -139,14 +139,17 @@ git commit -m "feat: expose plugin import probing over vstbridge"
 ### Task 3: Runtime dependency model and bundle format
 
 **Files:**
+- Create: `runtime/dependencies.js`
 - Modify: `runtime/runtime.js`
 - Modify: `wrap/bundle.js`
+- Modify: `wrap/wrap.mjs`
 - Modify: `runtime/wrap.js`
 - Create: `tests/dependency-bundle-contract.mjs`
 - Create: `tests/runtime-dependency-contract.mjs`
 
 **Interfaces:**
 - Produces JS type shape: `{ name: string, sha256: string, bytes: Uint8Array }`.
+- Produces shared helpers `sha256Hex(bytes): Promise<string>` and `normalizeDependencies(dependencies): Promise<Dependency[]>` in `runtime/dependencies.js`.
 - Produces: `window.vstloaderRuntime.probeBinary(pluginBytes, dependencies = [])`.
 - Changes: `describeBinary(pluginBytes, dependencies = [])` while keeping the one-argument call valid.
 - Changes: `buildBundle({ ..., dependencies = [] })`.
@@ -161,9 +164,9 @@ Assert rejection of traversal/absolute names, non-DLLs, `plugin.dll`, non-x86 co
 Run: `node tests/dependency-bundle-contract.mjs`  
 Expected: FAIL because `buildBundle` ignores dependencies.
 
-- [ ] **Step 3: Implement dependency normalization in `wrap/bundle.js`**
+- [ ] **Step 3: Implement shared dependency hashing/normalization**
 
-Export `normalizeDependencies(dependencies)`. Reuse `checkBinary` for x86 PE validation, lower-case only for comparison/sort keys, preserve the user's basename for the resource name, and require the supplied SHA-256 to be 64 lowercase hex characters.
+Create `runtime/dependencies.js` with async `sha256Hex(bytes)` and `normalizeDependencies(dependencies)`. Validate basename/extension/uniqueness there, compute each payload hash with Web Crypto, and reject a supplied SHA-256 that is not 64 lowercase hex or does not match the bytes. `wrap/bundle.js` and `runtime/runtime.js` both consume this module; `checkBinary` still performs x86 PE validation.
 
 - [ ] **Step 4: Extend descriptor/tar construction**
 
@@ -175,14 +178,18 @@ Stub `ControlClient` and assert `probeBinary` uploads primary + companions into 
 
 - [ ] **Step 6: Implement `probeBinary` and dependency-aware `describeBinary`**
 
-Compute the primary SHA, normalize dependencies, upload `plugin.dll` plus companion basenames into the SHA directory via `VSTB_OP_PUT_FILE`, invoke `VSTB_OP_PROBE_IMPORTS`, and block `VSTB_OP_LOAD` while `missing.length > 0`.
+Compute the primary SHA, normalize dependencies, validate every companion as x86 PE with `checkBinary`, upload `plugin.dll` plus companion basenames into the SHA directory via `VSTB_OP_PUT_FILE`, invoke `VSTB_OP_PROBE_IMPORTS`, and block `VSTB_OP_LOAD` while `missing.length > 0`.
 
-- [ ] **Step 7: Run runtime/bundle tests**
+- [ ] **Step 7: Add standalone wrapper dependency inputs**
+
+Extend `wrap/wrap.mjs` with repeatable `--dep <path-to-dll>`. Compute each dependency SHA with `sha256Hex`, pass the same collection to `describeBinary` inside Chromium and `buildBundle` outside Chromium, and document the option in its usage text. Keep the no-`--dep` CLI behavior unchanged.
+
+- [ ] **Step 8: Run runtime/bundle tests**
 
 Run: `node tests/dependency-bundle-contract.mjs && node tests/runtime-dependency-contract.mjs`  
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add runtime wrap tests
@@ -215,7 +222,7 @@ Expected: FAIL because op 5 and descriptor parsing are absent.
 
 - [ ] **Step 3: Parse dependency descriptor entries in the shim**
 
-Extend `vl_descriptor` with a bounded dependency table containing name, expected binary SHA-256, and resource path. Reject malformed lines during `entry_init`.
+Extend `vl_descriptor` with `MAX_DEPENDENCIES = 64` bounded entries containing name, expected binary SHA-256, and resource path. Reject malformed lines, duplicate names, or a 65th dependency during `entry_init`.
 
 - [ ] **Step 4: Send dependency frames before HELLO**
 
@@ -261,7 +268,7 @@ Expected before implementation: missing API/op assertions fail.
 
 - [ ] **Step 3: Wrap and run the synthetic bundle**
 
-Create `build/wraps/companion-test.wclap.tar.gz` with the dependency. Extract the tar in CI and assert the descriptor line and resource exist. Run the browser/installed WebCLAP path and assert the plugin loads/describes successfully.
+Create `build/wraps/companion-test.wclap.tar.gz` through `wrap/wrap.mjs --dep build/companion_dep.dll`, so the public CLI path—not a test-only bundler call—is covered. Extract the tar in CI and assert the descriptor line and resource exist. Run the browser/installed WebCLAP path and assert the plugin loads/describes successfully.
 
 - [ ] **Step 4: Run compatibility regression gates**
 
