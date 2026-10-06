@@ -1,4 +1,4 @@
-# prometheos-webclap-vstloader
+# prometheos-webclap-universalloader
 
 Runs **unmodified 32-bit Windows VST2 and VST3 plugin binaries inside a browser
 tab**, in real time.
@@ -48,7 +48,7 @@ browser page (web/)                        Boxedwine (WebAssembly)
 | `.github/workflows/release.yml` | Builds Boxedwine, the runtime site and the wrapped test plugins; publishes them as a release on a `v*` tag. |
 | `include/prometheos_runtime.h` | The `prometheos.runtime/1` CLAP extension (plugin and host sides). |
 | `tests/buzz-remote/` | The wrapped plugins inside buzz-remote's real engine, in headless Chromium. |
-| `host/bridge.cpp`, `host/plugin_instance.cpp` | `vsthost --bridge`: real-time hosting through `/dev/vstbridge` (one thread per plugin instance), and `vsthost --replay`, the offline reference that renders a captured request stream through the same code. A plugin is a `PluginInstance`: `vst2_instance.cpp` (AEffect) or `vst3_instance.cpp` (IComponent/IAudioProcessor with its controller, MIDI through the plugin's IMidiMapping, state as component + controller streams), chosen by the binary's exports. |
+| `host/bridge.cpp`, `host/plugin_instance.cpp` | `vsthost --bridge`: real-time hosting through `/dev/vstbridge` (one thread per plugin instance), and `vsthost --replay`, the offline reference that renders a captured request stream through the same code. A plugin is a `PluginInstance`: `vst2_instance.cpp`, `vst3_instance.cpp`, or `buzz_instance.cpp`, selected by the binary exports. The Buzz path loads `GetInfo`/`CreateMachine`, preserves native `Init`/`Save` state, raw Buzz parameter metadata, `Tick`/`Work`, track limits and the +/-32768 sample convention while reusing the same bridge/runtime. |
 | `include/vstbridge_abi.h` | The shared-memory layout of `/dev/vstbridge` (the single source of truth; `vstbridge_abi.json` is its golden layout, checked against the JS and TypeScript twins and the patch's copy). |
 | `web/realtime.html` | Streams a plugin live into an AudioWorklet (on-screen keyboard, computer keys, Web MIDI), with underrun and block-time readouts; `tests/realtime.mjs` and `tests/identity.mjs` drive it headlessly. |
 | `host/vsthost.cpp` | The Windows-side host (MinGW, i686). VST2 through a clean-room ABI header, VST3 through Steinberg's MIT-licensed `pluginterfaces` only. One-shot mode, or persistent `--serve <dir>` mode that takes jobs from a mailbox file. Writes a WAV, a JSON report (plugin info, parameters with display text, peak/RMS, non-finite sample count, load/render time) and a stage trace. `--play` also sends the render to the Windows audio device (`waveOut`), which Boxedwine plays through browser audio. |
@@ -150,7 +150,7 @@ with a matching `.emscripten_url` marker.
 
 ## Limitations and next steps
 
-- **32-bit plugins only.** Boxedwine emulates 32-bit x86, so modern 64-bit-only
+- **32-bit plugins only.** This includes classic Buzz machine DLLs. Boxedwine emulates 32-bit x86, so modern 64-bit-only
   plugins (most current releases) cannot load. Older free plugins often still
   ship 32-bit builds.
 - **Real time needs the multithreaded build and L = 2,048 frames** (42.7 ms) for
@@ -260,3 +260,12 @@ What a host needs to provide:
 - Boxedwine: GPL-2.0-or-later. Wine: LGPL-2.1-or-later.
 - Dexed (optional download, not committed; wrapped in releases): GPL-3.0,
   source at https://github.com/asb2m10/dexed/tree/v0.9.3.
+
+
+## Universal-loader fork
+
+This repository intentionally keeps the original VST transport and runtime architecture intact while adding formats behind `PluginInstance`. The VST-only project can therefore remain small and focused; transport, Boxedwine patches and VST fixes can be cherry-picked between the repositories without requiring Buzz code in the VST-only tree.
+
+Buzz DLL detection uses the native exports `GetInfo` and `CreateMachine`. Wrapped Buzz binaries use the same hidden runtime page and therefore share one Boxedwine/Wine boot and the existing per-instance bridge channels with VST instances. Multiple Buzz machines can be active in one runtime; they do not start one emulator per machine.
+
+The current Buzz implementation is the first integration slice. It covers DLL detection and description, global parameter metadata, track metadata, attributes, `Init`/`Save` state, `Tick`, `Work`, `MidiNote`, mono effects/generators and Buzz sample scaling. The compatibility target for the next slices is the host contract already proven by `prometheos-webclap-buzzmachines`: exact `prometheos.buzz-machine/1` scheduling, waves/envelopes, MI66 multi-I/O/stereo effects/latency and the broader callback surface.
