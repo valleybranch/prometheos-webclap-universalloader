@@ -41,6 +41,7 @@
 
 **Interfaces:**
 - Produces: `export interface CompanionDll { name: string; sha256: string; bytes: Uint8Array; sourcePath?: string }`.
+- Produces: `makeCompanionDll(name: string, bytes: Uint8Array, sourcePath?: string): Promise<CompanionDll>`, which computes lowercase SHA-256 with Web Crypto.
 - Produces: `export interface ImportProbeResult { imports: Array<{name:string; resolved:boolean; path:string}>; missing: string[] }`.
 - Produces: `findSiblingDependencies(fs, pluginPath, missingNames): Promise<Array<{name:string; path:string}>>`.
 - Changes runtime interface to `probeBinary(bytes, dependencies?: CompanionDll[]): Promise<{sha256:string; probe:ImportProbeResult}>`.
@@ -49,16 +50,16 @@
 
 - [ ] **Step 1: Write failing discovery tests**
 
-Cover exact sibling match, case-insensitive match, no recursive search, ignoring unrelated DLLs, and rejecting ambiguous duplicate case-insensitive sibling names.
+Cover exact sibling match, case-insensitive match, no recursive search, ignoring unrelated DLLs, rejecting ambiguous duplicate case-insensitive sibling names, and `makeCompanionDll` producing the expected SHA-256 for fixed bytes.
 
 - [ ] **Step 2: Run tests and verify RED**
 
 Run: `pnpm exec vitest run apps/vstwrap-remote/src/dependencies.test.ts`  
 Expected: FAIL because `findSiblingDependencies` does not exist.
 
-- [ ] **Step 3: Implement `findSiblingDependencies`**
+- [ ] **Step 3: Implement hashing and sibling discovery**
 
-Use `directoryOf(pluginPath)`, one `readDir` call, and exact normalized basename comparison. Return only file entries matching requested names; throw a descriptive ambiguity error if more than one VFS entry normalizes to the same requested basename.
+Implement `makeCompanionDll` with `crypto.subtle.digest("SHA-256", bytes)`. Implement `findSiblingDependencies` with `directoryOf(pluginPath)`, one `readDir` call, and exact normalized basename comparison. Return only file entries matching requested names; throw a descriptive ambiguity error if more than one VFS entry normalizes to the same requested basename.
 
 - [ ] **Step 4: Update runtime/bundle TypeScript contracts**
 
@@ -98,7 +99,7 @@ Preflight returns `["MFC42.DLL"]` with no sibling match. Assert the UI displays 
 
 - [ ] **Step 3: Write failing manual-add tests**
 
-When the user chooses `MFC42.DLL`, assert it is staged and reprobed. When the chosen basename is unrelated, assert it is rejected unless the user invokes the explicit “Add additional/transitive DLL” path.
+Mock `useFilePicker(...).open({ accept: ["dll"], ... })`. When the user chooses `MFC42.DLL`, assert the VFS file is read, passed through `makeCompanionDll`, staged, and reprobed. When the chosen basename is unrelated, assert it is rejected unless the user invokes the explicit **Add additional/transitive DLL…** path.
 
 - [ ] **Step 4: Write failing transitive-error test**
 
@@ -106,7 +107,7 @@ Mock `describeBinary` to throw `loader-dependency-failure:error 126; direct impo
 
 - [ ] **Step 5: Implement the dependency state machine in `App.tsx`**
 
-On plugin selection/wrap: preflight with staged companions, auto-stage exact siblings, reprobe until no new exact sibling can be added, then either show unresolved state or call `wrapPlugin`. Keep manual companions across reprobes for the selected primary plugin; clear them when primary plugin changes.
+On plugin selection/wrap: preflight with staged companions, auto-stage exact siblings, read/hash them with `makeCompanionDll`, reprobe until no new exact sibling can be added, then either show unresolved state or call `wrapPlugin`. Use the existing `useFilePicker(windowId)` for manual DLL selection with `accept: ["dll"]` and `startIn: directoryOf(pluginPath)`. Keep manual companions across reprobes for the selected primary plugin; clear them when primary plugin changes.
 
 - [ ] **Step 6: Surface licensing/packaging notice**
 
