@@ -271,7 +271,8 @@ std::string BuzzMachineInstance::describeJson() {
           << ",\"value\":" << (p.MaxValue == p.MinValue ? 0.0 : double(p.DefValue - p.MinValue) / double(p.MaxValue - p.MinValue))
           << ",\"buzzType\":" << static_cast<int>(p.Type)
           << ",\"minValue\":" << p.MinValue << ",\"maxValue\":" << p.MaxValue
-          << ",\"noValue\":" << p.NoValue << ",\"defValue\":" << p.DefValue << "}";
+          << ",\"noValue\":" << p.NoValue << ",\"defValue\":" << p.DefValue
+          << ",\"flags\":" << p.Flags << ",\"description\":" << jsonString(p.Description ? p.Description : "") << "}";
     }
     s << "],\"trackParams\":[";
     for (int i = 0; i < info_->numTrackParameters; ++i) {
@@ -280,7 +281,8 @@ std::string BuzzMachineInstance::describeJson() {
         s << "{\"name\":" << jsonString(p.Name ? p.Name : "")
           << ",\"buzzType\":" << static_cast<int>(p.Type)
           << ",\"minValue\":" << p.MinValue << ",\"maxValue\":" << p.MaxValue
-          << ",\"noValue\":" << p.NoValue << ",\"defValue\":" << p.DefValue << "}";
+          << ",\"noValue\":" << p.NoValue << ",\"defValue\":" << p.DefValue
+          << ",\"flags\":" << p.Flags << ",\"description\":" << jsonString(p.Description ? p.Description : "") << "}";
     }
     s << "],\"attributes\":[";
     for (int i = 0; i < info_->numAttributes; ++i) {
