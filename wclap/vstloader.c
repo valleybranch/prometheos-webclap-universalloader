@@ -31,6 +31,7 @@
 #include "vstloader_protocol.h"
 
 #define MAX_PARAMS 1024
+#define MAX_DEPENDENCIES 64
 #define MAX_PORTS 4
 #define NAME_BYTES 256
 #define STATE_REFRESH_BLOCKS 94
@@ -55,6 +56,14 @@ typedef struct {
 } vl_param_info;
 
 typedef struct {
+    char name[NAME_BYTES];
+    char sha256[65];
+    char resource[1024];
+    uint8_t *bytes;
+    uint32_t size;
+} vl_dependency_info;
+
+typedef struct {
     char id[NAME_BYTES];
     char name[NAME_BYTES];
     char vendor[NAME_BYTES];
@@ -71,6 +80,8 @@ typedef struct {
     uint32_t blockFrames;
     uint32_t paramCount;
     vl_param_info *params;
+    uint32_t dependencyCount;
+    vl_dependency_info dependencies[MAX_DEPENDENCIES];
 } vl_descriptor;
 
 static vl_descriptor g_desc;
@@ -122,6 +133,22 @@ static bool readDescriptor(const char *bundle) {
         else if (!strcmp(key, "latency")) g_desc.pluginLatency = (uint32_t)atoi(value);
         else if (!strcmp(key, "bridgeLatency")) g_desc.bridgeLatency = (uint32_t)atoi(value);
         else if (!strcmp(key, "block")) g_desc.blockFrames = (uint32_t)atoi(value);
+        else if (!strcmp(key, "dependency")) {
+            if (g_desc.dependencyCount >= MAX_DEPENDENCIES) { fclose(f); return false; }
+            char *tab1 = strchr(value, '\t');
+            char *tab2 = tab1 ? strchr(tab1 + 1, '\t') : NULL;
+            if (!tab1 || !tab2) { fclose(f); return false; }
+            *tab1 = 0; *tab2 = 0;
+            if (!value[0] || strchr(value, '/') || strchr(value, '\\') || strchr(value, ':') ||
+                strlen(value) < 4 || _stricmp(value + strlen(value) - 4, ".dll") || !_stricmp(value, "plugin.dll") ||
+                strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15)) { fclose(f); return false; }
+            for (uint32_t i = 0; i < g_desc.dependencyCount; ++i)
+                if (!_stricmp(g_desc.dependencies[i].name, value)) { fclose(f); return false; }
+            vl_dependency_info *d = &g_desc.dependencies[g_desc.dependencyCount++];
+            copyField(d->name, sizeof d->name, value);
+            copyField(d->sha256, sizeof d->sha256, tab1 + 1);
+            copyField(d->resource, sizeof d->resource, tab2 + 1);
+        }
         else if (!strcmp(key, "param") && g_desc.paramCount < MAX_PARAMS) {
             vl_param_info *p = &g_desc.params[g_desc.paramCount++];
             char *tab1 = strchr(value, '\t');
