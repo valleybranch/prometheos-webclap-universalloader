@@ -165,6 +165,7 @@ class Instance {
     this.queue = Promise.resolve();
     this.loadedAt = 0;
     this.dependencies = new Map();
+    this.dependencyError = null;
   }
 
   /** Runs control work for this instance one step at a time. */
@@ -208,17 +209,29 @@ class Instance {
   }
 
   async addDependency(body) {
-    const dep = parseDependency(body);
-    const key = dep.name.toLowerCase();
-    if (this.dependencies.size >= 64 && !this.dependencies.has(key)) throw new Error("too many companion dependencies");
-    if (this.dependencies.has(key)) throw new Error(`duplicate companion dependency: ${dep.name}`);
-    const actual = await sha256Hex(dep.bytes);
-    if (actual !== dep.sha256) throw new Error(`dependency integrity error: ${dep.name}`);
-    this.dependencies.set(key, dep);
+    if (this.dependencyError) throw new Error(this.dependencyError);
+    try {
+      const dep = parseDependency(body);
+      const key = dep.name.toLowerCase();
+      if (this.dependencies.size >= 64 && !this.dependencies.has(key)) throw new Error("too many companion dependencies");
+      if (this.dependencies.has(key)) throw new Error(`duplicate companion dependency: ${dep.name}`);
+      const actual = await sha256Hex(dep.bytes);
+      if (actual !== dep.sha256) throw new Error(`dependency integrity error: ${dep.name}`);
+      this.dependencies.set(key, dep);
+    } catch (error) {
+      this.dependencies.clear();
+      this.dependencyError = String(error?.message ?? error);
+      throw error;
+    }
   }
 
   async start(body) {
     if (!this.memory) throw new Error("the plugin's memory is not shared (it needs a threads build)");
+    if (this.dependencyError) {
+      const error = this.dependencyError;
+      this.dependencyError = null;
+      throw new Error(`invalid companion dependency batch: ${error}`);
+    }
     if (body.length < HELLO_BYTES) throw new Error("short hello");
     const hello = parseHello(body);
     if (body.length !== HELLO_BYTES + hello.dllSize) throw new Error("malformed hello");
@@ -244,6 +257,7 @@ class Instance {
     log(`${this.describe.name}: loaded on channel ${this.channel} in ${((this.loadedAt - started) / 1000).toFixed(1)} s`, "info", this.id);
     await this.reportState();
     this.dependencies.clear();
+    this.dependencyError = null;
   }
 
   /** Resets the plugin's channel, starts the relays, and lets the plugin start its stream. */
