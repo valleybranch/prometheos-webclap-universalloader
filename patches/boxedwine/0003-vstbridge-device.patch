@@ -509,7 +509,7 @@ new file mode 100644
 index 00000000..129b8d41
 --- /dev/null
 +++ b/source/kernel/devs/vstbridge_abi.h
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,273 @@
 +#pragma once
 +
 +/*
@@ -785,7 +785,6 @@ index 00000000..129b8d41
 +#ifdef __cplusplus
 +}
 +#endif
-+
 diff --git a/source/sdl/startupArgs.cpp b/source/sdl/startupArgs.cpp
 index 6e0493b0..5fed1f46 100644
 --- a/source/sdl/startupArgs.cpp
