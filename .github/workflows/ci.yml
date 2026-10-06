@@ -38,6 +38,7 @@ jobs:
           export WINEPREFIX="$RUNNER_TEMP/wine32"
           wineboot -u
           node tests/abi_layout.mjs
+          node tests/buzz-loader-contract.mjs
           wine build/pe_imports_test.exe
           node tests/import_probe_bridge.mjs
           node tests/dependency-bundle-contract.mjs
