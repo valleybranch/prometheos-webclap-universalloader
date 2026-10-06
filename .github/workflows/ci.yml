@@ -44,6 +44,7 @@ jobs:
           node tests/dependency-bundle-contract.mjs
           node tests/runtime-dependency-contract.mjs
           node tests/dependency-frame-contract.mjs
+          node tests/boxedwine-messagebox-contract.mjs
       - name: Build the vstloader WebCLAP (wasi-sdk) and check the runtime's scripts
         run: |
           git submodule update --init vendor/clap
