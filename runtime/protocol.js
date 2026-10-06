@@ -6,6 +6,7 @@ export const Op = Object.freeze({
   SET_STATE: 2,
   GET_STATE: 3,
   BYE: 4,
+  DEPENDENCY: 5,
   STATE: 101,
   ERROR: 102,
   RESEND: 103,
