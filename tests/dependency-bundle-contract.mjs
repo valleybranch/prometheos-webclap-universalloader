@@ -4,7 +4,7 @@ import { normalizeDependencies } from "../runtime/dependencies.js";
 import { descriptor, tar } from "../wrap/bundle.js";
 
 const primary = new Uint8Array(readFileSync("build/companion_plugin.dll"));
-const dep = new Uint8Array(readFileSync("build/companion_dep.dll"));
+const dep = new Uint8Array(readFileSync("build/companion_dep.fixture"));
 const norm = await normalizeDependencies([{ name: "COMPANION_DEP.DLL", bytes: dep }]);
 assert.equal(norm.length, 1);
 assert.match(norm[0].sha256, /^[0-9a-f]{64}$/);
