@@ -11,6 +11,7 @@
 // {requestId, data}. Frames: wclap/vstloader_protocol.h (protocol.js).
 import { BridgeRegion, ControlClient, VSTB } from "./vstbridge.js";
 import { HELLO_BYTES, Op, frame, parseHello } from "./protocol.js";
+import { normalizeDependencies, sha256Hex } from "./dependencies.js";
 
 const RUNTIME = "prometheos-runtime/1";
 const C = VSTB.constants;
@@ -98,17 +99,16 @@ async function bootOnce() {
   }
 }
 
-function guestPath(sha256) {
-  return `C:\\winvst\\${sha256}.dll`;
-}
+function guestDir(sha256) { return `C:\\winvst\\${sha256}`; }
+function guestPath(sha256) { return `${guestDir(sha256)}\\plugin.dll`; }
 
 /** Writes a plugin binary into the guest once per session (PUT_FILE pieces). */
-function upload(sha256, binary) {
+function upload(sha256, binary, path = guestPath(sha256)) {
   let done = uploaded.get(sha256);
   if (!done) {
     done = (async () => {
       const { control } = await boot();
-      const pathBytes = new TextEncoder().encode(guestPath(sha256));
+      const pathBytes = new TextEncoder().encode(path);
       for (let offset = 0; offset < binary.length || offset === 0; offset += UPLOAD_PIECE) {
         const piece = binary.subarray(offset, offset + UPLOAD_PIECE);
         const message = new Uint8Array(12 + pathBytes.length + piece.length);
@@ -320,14 +320,23 @@ class Instance {
 
 // ---- describe (for wrapping a .dll) --------------------------------------------------
 
-async function describeBinary(binary) {
-  const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", binary))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+async function probeBinary(binary, dependencies = []) {
+  const sha256 = await sha256Hex(binary);
+  const deps = await normalizeDependencies(dependencies);
   await upload(sha256, binary);
-  const describe = await loadInto(DESCRIBE_CHANNEL, sha256, 48000, 256);
+  for (const dep of deps) await upload(`${sha256}:${dep.name.toLowerCase()}:${dep.sha256}`, dep.bytes, `${guestDir(sha256)}\\${dep.name}`);
+  const { control } = await boot();
+  const reply = await control.request(E.OP_PROBE_IMPORTS, 0, guestPath(sha256));
+  if (reply.status !== E.STATUS_OK) throw new Error(`probing plugin imports failed: ${reply.text}`);
+  return { sha256, dependencies: deps, probe: JSON.parse(reply.text) };
+}
+
+async function describeBinary(binary, dependencies = []) {
+  const result = await probeBinary(binary, dependencies);
+  if (result.probe.missing.length) throw new Error(`missing-direct-dependency:${result.probe.missing.join(",")}`);
+  const describe = await loadInto(DESCRIBE_CHANNEL, result.sha256, 48000, 256);
   await emulator.control.request(E.OP_UNLOAD, DESCRIBE_CHANNEL).catch(() => undefined);
-  return { sha256, describe };
+  return { sha256: result.sha256, describe };
 }
 
 // ---- host messages -----------------------------------------------------------------------
@@ -362,6 +371,7 @@ window.vstloaderRuntime = {
   state,
   boot,
   describeBinary,
+  probeBinary,
   instances: () => [...instances.values()].map((instance) => ({ id: instance.id, ...instance.stats() })),
   /** An instance's channel in its plugin's memory (tests capture requests from it). */
   channel: (id) => {

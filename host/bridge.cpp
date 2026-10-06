@@ -14,6 +14,7 @@
 #include "bridge.h"
 
 #include "json.h"
+#include "pe_imports.h"
 #include "plugin_instance.h"
 #include "vstbridge_abi.h"
 
@@ -276,6 +277,12 @@ class Control {
         const bool validChannel = ch >= 1 && ch <= static_cast<int>(VSTB_MAX_CHANNELS);
         switch (msg.op) {
         case VSTB_OP_PING: respond(msg, VSTB_STATUS_OK, "pong"); return;
+        case VSTB_OP_PROBE_IMPORTS: {
+            ImportProbe probe;
+            std::string error;
+            if (!probePeImports(payload, probe, error)) return respond(msg, VSTB_STATUS_ERROR, error);
+            return respond(msg, VSTB_STATUS_OK, importProbeJson(probe));
+        }
         case VSTB_OP_LOAD: {
             if (!validChannel) return respond(msg, VSTB_STATUS_ERROR, "bad channel");
             if (gInstances[ch]) return respond(msg, VSTB_STATUS_ERROR, "channel in use");

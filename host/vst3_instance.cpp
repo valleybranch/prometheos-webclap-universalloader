@@ -448,7 +448,7 @@ bool Vst3Instance::load(const std::string &path, double sampleRate, int blockFra
     Impl &m = *impl_;
     rate = sampleRate;
     block_ = blockFrames;
-    m.dll = LoadLibraryA(path.c_str());
+    m.dll = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!m.dll) {
         error = "LoadLibrary failed, error " + std::to_string(GetLastError());
         return false;

@@ -20,7 +20,8 @@ cd "$here"
 CC=${CC:-i686-w64-mingw32-gcc}
 CXX=${CXX:-i686-w64-mingw32-g++}
 BOXEDWINE_BUILD=${BOXEDWINE_BUILD:-$here/../boxedwine/project/emscripten/Build/Jit}
-WINE_FS_URL=https://boxedwine.org/v2/10/TinyCore15Wine11.0.zip
+WINE_FS_URL=${WINE_FS_URL:-https://boxedwine.org/v2/10/TinyCore15Wine11.0.zip}
+WINE_FS_FALLBACK_URL=${WINE_FS_FALLBACK_URL:-}
 WINE_FS_SHA256=e38234f93e85b1714c54f87ec3246a8275683b091219a8a4651ea7e3acd16b79
 DEXED_URL=https://github.com/asb2m10/dexed/releases/download/v0.9.3/dexed-0.9.3-win.zip
 
@@ -32,8 +33,11 @@ $CC -O2 -std=c11 -Wall -shared -Iinclude plugins/vst2/poc_invert_vst2.c plugins/
   -o build/PoCInvert.dll -static-libgcc
 $CXX -O2 -std=c++17 -Wall -shared -Iinclude -Ivendor plugins/vst3/poc_synth_vst3.cpp plugins/vst3/poc_synth_vst3.def \
   -o build/PoCSynth.vst3 -static -Wl,--kill-at -Wl,--enable-stdcall-fixup
-$CXX -O2 -std=c++17 -Wall -Iinclude -Ivendor host/vsthost.cpp host/bridge.cpp host/plugin_instance.cpp host/vst2_instance.cpp host/vst3_instance.cpp host/buzz_instance.cpp \
+$CC -O2 -std=c11 -Wall -shared tests/fixtures/companion_dep.c -Wl,--out-implib,build/libcompanion_dep.a -o build/companion_dep.dll
+$CC -O2 -std=c11 -Wall -shared tests/fixtures/companion_plugin.c build/libcompanion_dep.a -o build/companion_plugin.dll
+$CXX -O2 -std=c++17 -Wall -Iinclude -Ivendor host/vsthost.cpp host/bridge.cpp host/pe_imports.cpp host/plugin_instance.cpp host/vst2_instance.cpp host/vst3_instance.cpp host/buzz_instance.cpp \
   -o build/vsthost.exe -static -lwinmm
+$CXX -O2 -std=c++17 -Wall -Iinclude -Ihost tests/pe_imports.cpp host/pe_imports.cpp -o build/pe_imports_test.exe -static
 $CC -O2 tests/wintest.c -o build/wintest.exe
 $CC -O2 -Wall tests/devtest.c -o build/devtest.exe
 
@@ -68,7 +72,26 @@ fi
 
 echo "== Wine filesystem"
 WINE_FS_ZIP=${WINE_FS_ZIP:-$here/.cache/TinyCore15Wine11.0.zip}
-if [ ! -f "$WINE_FS_ZIP" ]; then curl -fsSL -o "$WINE_FS_ZIP" "$WINE_FS_URL"; fi
+if [ ! -f "$WINE_FS_ZIP" ]; then
+  tmp="$WINE_FS_ZIP.tmp"
+  rm -f "$tmp"
+  urls=()
+  [ -z "$WINE_FS_FALLBACK_URL" ] || urls+=("$WINE_FS_FALLBACK_URL")
+  urls+=("$WINE_FS_URL")
+  for url in "${urls[@]}"; do
+    echo "Downloading pinned Wine filesystem from $url"
+    if curl --fail --location --show-error --silent --retry 2 --retry-all-errors \
+      --connect-timeout 15 --max-time 180 -o "$tmp" "$url"; then
+      if echo "$WINE_FS_SHA256  $tmp" | sha256sum -c -; then
+        mv "$tmp" "$WINE_FS_ZIP"
+        break
+      fi
+      echo "Wine filesystem hash mismatch from $url" >&2
+    fi
+    rm -f "$tmp"
+  done
+  [ -f "$WINE_FS_ZIP" ] || { echo "failed to download verified Wine filesystem" >&2; exit 1; }
+fi
 echo "$WINE_FS_SHA256  $WINE_FS_ZIP" | sha256sum -c -
 
 DIST=${DIST:-dist}
@@ -87,7 +110,7 @@ printf '%s\n' "$plugins_json" > "$DIST/plugins.json"
 # (runtime/wrap.html) and, with wasi-sdk, the shim.
 mkdir -p "$DIST/runtime"
 cp runtime/index.html runtime/runtime.js runtime/relay-worker.js runtime/protocol.js \
-  runtime/wrap.html runtime/wrap.js wrap/bundle.js web/vstbridge.js web/vstbridge-abi.js "$DIST/runtime/"
+  runtime/wrap.html runtime/wrap.js runtime/dependencies.js wrap/bundle.js web/vstbridge.js web/vstbridge-abi.js "$DIST/runtime/"
 WASI_SDK=${WASI_SDK:-/opt/wasi-sdk}
 if [ -x "$WASI_SDK/bin/clang" ]; then
   WASI_SDK="$WASI_SDK" ./wclap/build.sh
