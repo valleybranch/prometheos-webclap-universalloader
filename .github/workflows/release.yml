@@ -180,7 +180,9 @@ jobs:
           corepack prepare pnpm@9.15.9 --activate
           pnpm --version
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-          pnpm --dir /tmp/prometheos-apps install --frozen-lockfile
+          cd /tmp/prometheos-apps/apps/buzz-remote
+          pnpm install --ignore-workspace --lockfile=false
+          cd "$GITHUB_WORKSPACE"
           node tests/buzz-remote/build.mjs --buzz /tmp/prometheos-apps/apps/buzz-remote --site dist-mt --plugins build/wraps
           node tests/buzz-remote/run.mjs --scenarios companion --out build/companion-buzz-remote
 
