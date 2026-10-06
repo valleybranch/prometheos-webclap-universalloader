@@ -20,7 +20,8 @@ cd "$here"
 CC=${CC:-i686-w64-mingw32-gcc}
 CXX=${CXX:-i686-w64-mingw32-g++}
 BOXEDWINE_BUILD=${BOXEDWINE_BUILD:-$here/../boxedwine/project/emscripten/Build/Jit}
-WINE_FS_URL=https://boxedwine.org/v2/10/TinyCore15Wine11.0.zip
+WINE_FS_URL=${WINE_FS_URL:-https://boxedwine.org/v2/10/TinyCore15Wine11.0.zip}
+WINE_FS_FALLBACK_URL=${WINE_FS_FALLBACK_URL:-}
 WINE_FS_SHA256=e38234f93e85b1714c54f87ec3246a8275683b091219a8a4651ea7e3acd16b79
 DEXED_URL=https://github.com/asb2m10/dexed/releases/download/v0.9.3/dexed-0.9.3-win.zip
 
@@ -71,7 +72,26 @@ fi
 
 echo "== Wine filesystem"
 WINE_FS_ZIP=${WINE_FS_ZIP:-$here/.cache/TinyCore15Wine11.0.zip}
-if [ ! -f "$WINE_FS_ZIP" ]; then curl -fsSL -o "$WINE_FS_ZIP" "$WINE_FS_URL"; fi
+if [ ! -f "$WINE_FS_ZIP" ]; then
+  tmp="$WINE_FS_ZIP.tmp"
+  rm -f "$tmp"
+  urls=()
+  [ -z "$WINE_FS_FALLBACK_URL" ] || urls+=("$WINE_FS_FALLBACK_URL")
+  urls+=("$WINE_FS_URL")
+  for url in "${urls[@]}"; do
+    echo "Downloading pinned Wine filesystem from $url"
+    if curl --fail --location --show-error --silent --retry 2 --retry-all-errors \
+      --connect-timeout 15 --max-time 180 -o "$tmp" "$url"; then
+      if echo "$WINE_FS_SHA256  $tmp" | sha256sum -c -; then
+        mv "$tmp" "$WINE_FS_ZIP"
+        break
+      fi
+      echo "Wine filesystem hash mismatch from $url" >&2
+    fi
+    rm -f "$tmp"
+  done
+  [ -f "$WINE_FS_ZIP" ] || { echo "failed to download verified Wine filesystem" >&2; exit 1; }
+fi
 echo "$WINE_FS_SHA256  $WINE_FS_ZIP" | sha256sum -c -
 
 DIST=${DIST:-dist}
