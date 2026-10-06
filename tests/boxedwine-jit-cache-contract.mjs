@@ -10,5 +10,5 @@ assert.match(patch, /Config\.serverJitCacheEnabled\s*=\s*getServerJitCacheEnable
 assert.match(patch, /function fetchServerJitCache\(callback\)[\s\S]*if \(!Config\.serverJitCacheEnabled\)[\s\S]*callback\(\)[\s\S]*return/);
 assert.match(patch, /fetch\(baseUrl \+ getJitCacheZipFilename\(\)\)/);
 assert.match(runtime, /["']server-jit-cache["']:\s*["']false["']/);
-assert.match(patch, /function getJitRecord\(\)/);
+assert.doesNotMatch(patch, /^[+-].*getJitRecord/m);
 console.log("boxedwine JIT cache contract: ok");
