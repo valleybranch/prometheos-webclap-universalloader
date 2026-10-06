@@ -183,7 +183,7 @@ Stub `ControlClient` and assert `probeBinary` uploads primary + companions into 
 
 - [ ] **Step 7: Implement `probeBinary` and dependency-aware `describeBinary`**
 
-Compute the primary SHA, normalize dependencies, validate every companion as x86 PE with `checkBinary`, upload `plugin.dll` plus companion basenames into the SHA directory via `VSTB_OP_PUT_FILE`, invoke `VSTB_OP_PROBE_IMPORTS`, and block `VSTB_OP_LOAD` while `missing.length > 0`.
+Compute the primary SHA, normalize dependencies (which validates every companion as x86 PE with `assertX86Pe`), upload `plugin.dll` plus companion basenames into the SHA directory via `VSTB_OP_PUT_FILE`, invoke `VSTB_OP_PROBE_IMPORTS`, and block `VSTB_OP_LOAD` while `missing.length > 0`.
 
 - [ ] **Step 8: Add standalone wrapper dependency inputs**
 
@@ -218,7 +218,7 @@ git commit -m "feat: package and stage companion DLLs"
 
 - [ ] **Step 1: Write failing protocol/frame tests**
 
-Assert C and JS op tables both define `DEPENDENCY: 5`; assert a fixture bundle causes dependency frames before HELLO; corrupt one dependency byte and assert the runtime emits `VL_ERROR` with `dependency integrity error` and never sends `VSTB_OP_LOAD`.
+Assert C and JS op tables both define `DEPENDENCY: 5`; assert a fixture bundle causes dependency frames before HELLO; simulate `VL_RESEND` and assert all dependency frames are resent before the replacement HELLO; corrupt one dependency byte and assert the runtime emits `VL_ERROR` with `dependency integrity error` and never sends `VSTB_OP_LOAD`.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -231,7 +231,7 @@ Extend `vl_descriptor` with `MAX_DEPENDENCIES = 64` bounded entries containing n
 
 - [ ] **Step 4: Send dependency frames before HELLO**
 
-On the main/control path, read each dependency resource, decode descriptor SHA-256 hex into 32 bytes, send `VL_DEPENDENCY`, then send the existing HELLO. Do not allocate/read dependency files in `process()`.
+On the main/control path, read each dependency resource, decode descriptor SHA-256 hex into 32 bytes, send every `VL_DEPENDENCY`, then send the existing HELLO. Cache the immutable dependency bytes in the plugin instance after first read so `VL_RESEND` can replay dependency frames before the replacement HELLO without filesystem I/O from `process()`.
 
 - [ ] **Step 5: Verify and stage frames in the runtime**
 
