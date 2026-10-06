@@ -155,7 +155,9 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Stage verified Buzz fixture for browser wrapper
-        run: cp 'build/FSM Kick XP.dll' 'dist-mt/app/FSM Kick XP.dll'
+        run: |
+          mkdir -p dist-mt/app
+          cp 'build/FSM Kick XP.dll' 'dist-mt/app/FSM Kick XP.dll'
 
       - name: Wrap the plugins
         env:
