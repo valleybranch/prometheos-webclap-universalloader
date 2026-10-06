@@ -68,6 +68,7 @@ async function bootOnce() {
     args: "--bridge",
     storage: "memory",
     sound: "false",
+    "server-jit-cache": "false",
   });
   const base = params.get("boxedwine") ?? "../boxedwine/";
   const frameEl = document.createElement("iframe");
