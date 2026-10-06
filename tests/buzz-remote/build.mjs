@@ -17,7 +17,7 @@ const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, "")] = args[i + 1];
 if (!opt.buzz) throw new Error("--buzz <prometheos-apps>/apps/buzz-remote is required");
 const buzz = resolve(opt.buzz);
-const require = createRequire(join(buzz, "package.json"));
+const require = createRequire(join(root, "package.json"));
 const { build } = require("esbuild");
 
 const out = join(here, "out");
