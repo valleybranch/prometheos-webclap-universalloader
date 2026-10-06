@@ -785,6 +785,7 @@ index 00000000..129b8d41
 +#ifdef __cplusplus
 +}
 +#endif
++
 diff --git a/source/sdl/startupArgs.cpp b/source/sdl/startupArgs.cpp
 index 6e0493b0..5fed1f46 100644
 --- a/source/sdl/startupArgs.cpp
