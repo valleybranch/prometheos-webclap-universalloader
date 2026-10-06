@@ -34,6 +34,7 @@ $CC -O2 -std=c11 -Wall -shared -Iinclude plugins/vst2/poc_invert_vst2.c plugins/
 $CXX -O2 -std=c++17 -Wall -shared -Iinclude -Ivendor plugins/vst3/poc_synth_vst3.cpp plugins/vst3/poc_synth_vst3.def \
   -o build/PoCSynth.vst3 -static -Wl,--kill-at -Wl,--enable-stdcall-fixup
 $CC -O2 -std=c11 -Wall -shared tests/fixtures/companion_dep.c -Wl,--out-implib,build/libcompanion_dep.a -o build/companion_dep.dll
+cp build/companion_dep.dll build/companion_dep.fixture
 $CC -O2 -std=c11 -Wall -shared tests/fixtures/companion_plugin.c build/libcompanion_dep.a -o build/companion_plugin.dll
 $CXX -O2 -std=c++17 -Wall -Iinclude -Ivendor host/vsthost.cpp host/bridge.cpp host/pe_imports.cpp host/plugin_instance.cpp host/vst2_instance.cpp host/vst3_instance.cpp host/buzz_instance.cpp \
   -o build/vsthost.exe -static -lwinmm
