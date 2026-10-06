@@ -509,7 +509,7 @@ new file mode 100644
 index 00000000..129b8d41
 --- /dev/null
 +++ b/source/kernel/devs/vstbridge_abi.h
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,275 @@
 +#pragma once
 +
 +/*
