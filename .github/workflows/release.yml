@@ -117,8 +117,6 @@ jobs:
 
       - name: Require Buzz defaults before first Work
         run: |
-          echo "== buzz_startup.dll PE imports/exports =="
-          i686-w64-mingw32-objdump -p build/buzz_startup.dll | grep -E 'DLL Name:|CreateMachine|GetInfo|main' || true
           python3 tests/make_buzz_startup_capture.py /tmp/buzz-startup.capture
           HOST_WIN="Z:${PWD//\//\\}\\build\\vsthost.exe"
           DLL_WIN="Z:${PWD//\//\\}\\build\\buzz_startup.dll"
