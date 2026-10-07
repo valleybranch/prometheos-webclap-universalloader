@@ -57,6 +57,23 @@ if (companionPrimary && companionDep) {
   console.log(JSON.stringify({ companionProbe: true, ok, missing: result.first.missing, resolvedMissing: result.second.missing }));
 }
 
+if (process.env.BOXEDWINE_JIT_RECORD_SMOKE === "1") {
+  const before = observedRequests.length;
+  const jitPage = await browser.newPage();
+  observe(jitPage, "jit-record");
+  await jitPage.goto(`${base}/runtime/index.html?boot=1&jit-record=true`);
+  await jitPage.waitForFunction(
+    () => window.vstloaderRuntime?.state.phase === "ready" || window.vstloaderRuntime?.state.phase === "failed",
+    null, { timeout: 15 * 60 * 1000 },
+  );
+  const state = await jitPage.evaluate(() => ({ ...window.vstloaderRuntime.state }));
+  await jitPage.close();
+  const jitRequests = observedRequests.slice(before).filter((url) => /-jit-modules\.zip(?:\?|$)/.test(url));
+  const ok = state.phase === "ready" && jitRequests.length === 0;
+  failures += ok ? 0 : 1;
+  console.log(JSON.stringify({ jitRecordSmoke: true, ok, phase: state.phase, error: state.error, jitRequests }));
+}
+
 for (const plugin of plugins) {
   await page.evaluate(() => { window.vstPocResult = undefined; });
   await page.selectOption("#plugin", plugin);
