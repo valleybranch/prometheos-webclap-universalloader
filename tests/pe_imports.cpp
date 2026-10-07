@@ -97,6 +97,40 @@ int main(int argc, char **argv) {
     check(!probePeImports("build\\companion_plugin_truncated.dll", probe, error),
           "rejects_truncated_import_table");
 
+    // The import directory size is authoritative. A table whose declared
+    // extent cannot contain even one complete descriptor is malformed even
+    // when the surrounding section/file still has readable bytes.
+    std::vector<unsigned char> badDir = bytes;
+    src = std::fopen("build\\companion_plugin.dll", "rb");
+    if (src) {
+        std::fseek(src, 0, SEEK_END);
+        const long n = std::ftell(src);
+        std::fseek(src, 0, SEEK_SET);
+        if (n > 0) {
+            badDir.resize(static_cast<size_t>(n));
+            std::fread(badDir.data(), 1, badDir.size(), src);
+        }
+        std::fclose(src);
+    }
+    if (badDir.size() >= sizeof(IMAGE_DOS_HEADER)) {
+        auto *dos = reinterpret_cast<IMAGE_DOS_HEADER *>(badDir.data());
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew >= 0 &&
+            static_cast<size_t>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS32) <= badDir.size()) {
+            auto *nt = reinterpret_cast<IMAGE_NT_HEADERS32 *>(badDir.data() + dos->e_lfanew);
+            nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size =
+                sizeof(IMAGE_IMPORT_DESCRIPTOR) - 1;
+        }
+    }
+    dst = std::fopen("build\\companion_plugin_bad_import_size.dll", "wb");
+    if (dst) {
+        std::fwrite(badDir.data(), 1, badDir.size(), dst);
+        std::fclose(dst);
+    }
+    probe = {};
+    error.clear();
+    check(!probePeImports("build\\companion_plugin_bad_import_size.dll", probe, error),
+          "rejects_import_table_outside_declared_directory");
+
     DeleteFileA("build\\COMPANION_DEP.DLL");
     return failures ? 1 : 0;
 }
