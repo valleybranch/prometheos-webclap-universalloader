@@ -26,6 +26,10 @@ WINE_FS_SHA256=e38234f93e85b1714c54f87ec3246a8275683b091219a8a4651ea7e3acd16b79
 DEXED_URL=https://github.com/asb2m10/dexed/releases/download/v0.9.3/dexed-0.9.3-win.zip
 
 mkdir -p build .cache app
+echo "== Host plugin format precedence"
+g++ -O2 -std=c++17 -Wall -Wextra tests/plugin_format.cpp -o build/plugin_format_test
+./build/plugin_format_test
+
 echo "== Windows binaries (MinGW i686)"
 $CC -O2 -std=c11 -Wall -shared -Iinclude plugins/vst2/poc_synth_vst2.c plugins/vst2/poc_synth_vst2.def \
   -o build/PoCSynth.dll -static-libgcc -lm
