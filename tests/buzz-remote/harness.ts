@@ -6,7 +6,7 @@
 // loaded. Built against a buzz-remote checkout by build.mjs, driven by run.mjs.
 import { parseWebClapArchive } from "@/engine/webclap/archive";
 import { makeWebClapBackendSource } from "@/engine/webclap/packageSource";
-import { PluginRuntimeHost } from "@/engine/webclap/runtimeHost";
+import { PluginRuntimeHost, localRuntimeUri } from "@/engine/webclap/runtimeHost";
 import type { WebClapPackage } from "@/engine/webclap/types";
 import type { FromWorkletMessage, GraphMachine, ToWorkletMessage } from "@/engine/protocol";
 import { buildSchedule } from "@/lib/schedule";
@@ -86,6 +86,7 @@ async function startEngine(): Promise<Engine> {
     });
   const runtimes = new PluginRuntimeHost({
     request,
+    resolve: (uri) => localRuntimeUri(uri, location.href),
     onError: (machineId, message) => errors.push(`${machineId}: ${message}`),
     onLog: (message) => log(`runtime: ${message}`),
   });
