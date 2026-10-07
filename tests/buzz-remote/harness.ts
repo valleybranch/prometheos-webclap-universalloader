@@ -41,6 +41,7 @@ interface Engine {
   request(machineId: string, bytes: Uint8Array): Promise<Uint8Array>;
   captureData(machineId: string): Promise<Uint8Array | null>;
   errors: string[];
+  backendStatus: Map<string, { ok: boolean; message?: string }>;
 }
 
 let engine: Engine | null = null;
@@ -65,6 +66,7 @@ async function startEngine(): Promise<Engine> {
   node.connect(recorder, 0, 0);
   recorder.connect(ctx.destination);
   const errors: string[] = [];
+  const backendStatus = new Map<string, { ok: boolean; message?: string }>();
   const send = (message: ToWorkletMessage, transfer: Transferable[] = []) => node.port.postMessage(message, transfer);
   let nextId = 1;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
@@ -102,12 +104,14 @@ async function startEngine(): Promise<Engine> {
       captures.delete(m.captureId);
     } else if (m.type === "machine-error") {
       errors.push(`${m.machineId}: ${m.message}`);
-    } else if (m.type === "backend-status" && !m.ok) {
-      errors.push(`backend ${m.backendId}: ${m.message}`);
+    } else if (m.type === "backend-status") {
+      backendStatus.set(m.backendId, { ok: m.ok, ...(m.message ? { message: m.message } : {}) });
+      log(`backend ${m.backendId}: ${m.ok ? "ready" : `failed: ${m.message}`}`);
+      if (!m.ok) errors.push(`backend ${m.backendId}: ${m.message}`);
     }
   };
   await ctx.resume();
-  engine = { ctx, node, recorder, runtimes, send, request, captureData, errors };
+  engine = { ctx, node, recorder, runtimes, send, request, captureData, errors, backendStatus };
   return engine;
 }
 
@@ -150,6 +154,10 @@ async function install(file: string): Promise<WebClapPackage> {
   for (const id of source.artifacts) fetched.set(id, await source.loadArtifact(id));
   e.send({ type: "backend", payload: { ...source.pack(fetched), sourceId: source.id } });
   log(`installed ${file}: ${pkg.manifest.classes[0]!.classId} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
+  await waitFor(() => {
+    const status = e.backendStatus.get("webclap");
+    return status?.ok ? true : false;
+  }, 60_000, `the WebCLAP backend for ${file} to activate`);
   return pkg;
 }
 
