@@ -161,6 +161,7 @@ jobs:
       - name: Companion DLL browser and installed bundle gate
         env:
           RUNTIME_URL: ${{ inputs.runtime || vars.VSTLOADER_RUNTIME_URL || env.DEFAULT_RUNTIME_URL }}
+          BOXEDWINE_JIT_RECORD_SMOKE: "1"
         run: |
           python3 serve.py 8080 dist-mt > /tmp/companion-serve.log 2>&1 &
           server_pid=$!
