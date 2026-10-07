@@ -69,6 +69,7 @@ async function bootOnce() {
     storage: "memory",
     sound: "false",
     "server-jit-cache": "false",
+    ...(params.get("jit-record") === "true" ? { "jit-record": "true" } : {}),
   });
   const base = params.get("boxedwine") ?? "../boxedwine/";
   const frameEl = document.createElement("iframe");
