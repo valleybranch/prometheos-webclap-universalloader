@@ -2,6 +2,7 @@
 
 #include "buzz_instance.h"
 #include "pe_imports.h"
+#include "plugin_format.h"
 #include "vst2_instance.h"
 #include "vst3_instance.h"
 
@@ -107,11 +108,18 @@ std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate,
         error = classifyPluginLoadFailure(path, GetLastError());
         return nullptr;
     }
+    const PluginFormat format = classifyPluginExports(
+        GetProcAddress(dll, "GetPluginFactory") != nullptr,
+        GetProcAddress(dll, "VSTPluginMain") != nullptr,
+        GetProcAddress(dll, "main") != nullptr,
+        GetProcAddress(dll, "GetInfo") != nullptr,
+        GetProcAddress(dll, "CreateMachine") != nullptr);
     std::unique_ptr<PluginInstance> plugin;
-    if (GetProcAddress(dll, "GetPluginFactory")) plugin = std::make_unique<Vst3Instance>();
-    else if (GetProcAddress(dll, "VSTPluginMain") || GetProcAddress(dll, "main")) plugin = std::make_unique<Vst2Instance>();
-    else if (GetProcAddress(dll, "GetInfo") && GetProcAddress(dll, "CreateMachine")) plugin = std::make_unique<BuzzMachineInstance>();
-    else {
+    switch (format) {
+    case PluginFormat::Vst3: plugin = std::make_unique<Vst3Instance>(); break;
+    case PluginFormat::Vst2: plugin = std::make_unique<Vst2Instance>(); break;
+    case PluginFormat::Buzz: plugin = std::make_unique<BuzzMachineInstance>(); break;
+    case PluginFormat::Unsupported:
         error = "unsupported Windows plugin: expected VST2, VST3 or Buzz GetInfo/CreateMachine exports";
         FreeLibrary(dll);
         return nullptr;
