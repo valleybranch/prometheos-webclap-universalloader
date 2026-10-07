@@ -15,6 +15,7 @@ const browser = await chromium.launch({
 });
 const observedRequests = [];
 const observedErrors = [];
+const observedConsole = [];
 function observe(target, label) {
   target.on("request", (request) => observedRequests.push(request.url()));
   target.on("pageerror", (error) => {
@@ -22,6 +23,7 @@ function observe(target, label) {
     console.log(`${label} pageerror:`, error.message);
   });
   target.on("console", (message) => {
+    observedConsole.push(message.text());
     if (message.type() === "error") observedErrors.push(message.text());
   });
 }
@@ -47,14 +49,25 @@ if (companionPrimary && companionDep) {
     const runtime = window.vstloaderRuntime;
     if (runtime.state.phase !== "ready") throw new Error(runtime.state.error || "vstloader runtime failed to boot");
     const first = await runtime.probeBinary(decode(primary), []);
-    const second = await runtime.probeBinary(decode(primary), [{ name: depName, bytes: decode(depBytes) }]);
-    return { first: first.probe, second: second.probe };
+    const dependencies = [{ name: depName, bytes: decode(depBytes) }];
+    const second = await runtime.probeBinary(decode(primary), dependencies);
+    const described = await runtime.describeBinary(decode(primary), dependencies);
+    return { first: first.probe, second: second.probe, describe: described.describe };
   }, { primary, depName, depBytes });
   await runtimePage.close();
   const missing = result.first.missing.map((name) => name.toLowerCase());
-  const ok = missing.length === 1 && missing[0] === "companion_dep.dll" && result.second.missing.length === 0;
+  const loadStages = observedConsole.filter((line) => line.includes("[plugin-load]"));
+  const ok = missing.length === 1 &&
+    missing[0] === "companion_dep.dll" &&
+    result.second.missing.length === 0 &&
+    result.describe?.format === "vst2" &&
+    loadStages.some((line) => line.includes("probe-load-begin")) &&
+    loadStages.some((line) => line.includes("probe-load-end"));
   failures += ok ? 0 : 1;
-  console.log(JSON.stringify({ companionProbe: true, ok, missing: result.first.missing, resolvedMissing: result.second.missing }));
+  console.log(JSON.stringify({
+    companionProbe: true, ok, missing: result.first.missing,
+    resolvedMissing: result.second.missing, describeFormat: result.describe?.format, loadStages,
+  }));
 }
 
 if (process.env.BOXEDWINE_JIT_RECORD_SMOKE === "1") {
