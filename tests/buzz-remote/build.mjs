@@ -12,18 +12,19 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const opt = { buzz: "", site: "dist-mt", plugins: join(root, "build", "wraps") };
+const opt = { buzz: "", site: "dist-mt", plugins: join(root, "build", "wraps"), deps: "" };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, "")] = args[i + 1];
 if (!opt.buzz) throw new Error("--buzz <prometheos-apps>/apps/buzz-remote is required");
 const buzz = resolve(opt.buzz);
-const require = createRequire(join(root, "package.json"));
+const deps = resolve(opt.deps || buzz);
+const require = createRequire(join(deps, "package.json"));
 const { build } = require("esbuild");
 
 const out = join(here, "out");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, "plugins"), { recursive: true });
-const common = { bundle: true, format: "esm", target: "es2022", alias: { "@": join(buzz, "src") }, logLevel: "warning" };
+const common = { bundle: true, format: "esm", target: "es2022", alias: { "@": join(buzz, "src") }, nodePaths: [join(deps, "node_modules")], logLevel: "warning" };
 await build({ ...common, entryPoints: [join(here, "harness.ts")], outfile: join(out, "harness.js") });
 await build({ ...common, entryPoints: [join(buzz, "src/engine/buzz-worklet.ts")], outfile: join(out, "buzz-worklet.js") });
 cpSync(join(here, "harness.html"), join(out, "harness.html"));

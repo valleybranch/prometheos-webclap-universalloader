@@ -1,4 +1,5 @@
 #include "vst2_instance.h"
+#include "plugin_instance.h"
 
 #include "json.h"
 
@@ -73,7 +74,7 @@ bool Vst2Instance::load(const std::string &path, double sampleRate, int blockFra
     block_ = blockFrames;
     dll_ = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!dll_) {
-        error = "LoadLibrary failed, error " + std::to_string(GetLastError());
+        error = classifyPluginLoadFailure(path, GetLastError());
         return false;
     }
     auto entry = reinterpret_cast<Vst2PluginMain>(GetProcAddress(dll_, "VSTPluginMain"));

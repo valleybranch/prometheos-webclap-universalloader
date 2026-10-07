@@ -10,7 +10,7 @@
 // {instance, data}, detach {instance}; and, for wrapping a .dll, describe
 // {requestId, data}. Frames: wclap/vstloader_protocol.h (protocol.js).
 import { BridgeRegion, ControlClient, VSTB } from "./vstbridge.js";
-import { HELLO_BYTES, Op, frame, parseHello } from "./protocol.js";
+import { HELLO_BYTES, Op, frame, parseDependency, parseHello } from "./protocol.js";
 import { normalizeDependencies, sha256Hex } from "./dependencies.js";
 
 const RUNTIME = "prometheos-runtime/1";
@@ -68,6 +68,8 @@ async function bootOnce() {
     args: "--bridge",
     storage: "memory",
     sound: "false",
+    "server-jit-cache": "false",
+    ...(params.get("jit-record") === "true" ? { "jit-record": "true" } : {}),
   });
   const base = params.get("boxedwine") ?? "../boxedwine/";
   const frameEl = document.createElement("iframe");
@@ -164,6 +166,8 @@ class Instance {
     this.closed = false;
     this.queue = Promise.resolve();
     this.loadedAt = 0;
+    this.dependencies = new Map();
+    this.dependencyError = null;
   }
 
   /** Runs control work for this instance one step at a time. */
@@ -191,6 +195,8 @@ class Instance {
     const op = view.getUint32(0, true);
     const body = bytes.subarray(4);
     switch (op) {
+      case Op.DEPENDENCY:
+        return this.run("receiving a companion dependency", () => this.addDependency(body));
       case Op.HELLO:
         return this.run("loading the plugin", () => this.start(body));
       case Op.SET_STATE:
@@ -204,15 +210,49 @@ class Instance {
     }
   }
 
+  async addDependency(body) {
+    if (this.dependencyError) throw new Error(this.dependencyError);
+    try {
+      const dep = parseDependency(body);
+      const key = dep.name.toLowerCase();
+      if (this.dependencies.size >= 64 && !this.dependencies.has(key)) throw new Error("too many companion dependencies");
+      if (this.dependencies.has(key)) throw new Error(`duplicate companion dependency: ${dep.name}`);
+      const actual = await sha256Hex(dep.bytes);
+      if (actual !== dep.sha256) throw new Error(`dependency integrity error: ${dep.name}`);
+      this.dependencies.set(key, dep);
+    } catch (error) {
+      this.dependencies.clear();
+      this.dependencyError = String(error?.message ?? error);
+      throw error;
+    }
+  }
+
   async start(body) {
     if (!this.memory) throw new Error("the plugin's memory is not shared (it needs a threads build)");
+    if (this.dependencyError) {
+      const error = this.dependencyError;
+      this.dependencyError = null;
+      this.dependencies.clear();
+      throw new Error(`invalid companion dependency batch: ${error}`);
+    }
+    // A HELLO consumes the dependency frames that preceded it. Snapshot and
+    // clear them before validation/loading so a failed HELLO can be retried
+    // with the shim's freshly re-sent dependency batch.
+    const dependencies = [...this.dependencies.values()];
+    this.dependencies.clear();
     if (body.length < HELLO_BYTES) throw new Error("short hello");
     const hello = parseHello(body);
-    const binary = body.subarray(HELLO_BYTES, HELLO_BYTES + hello.dllSize);
+    if (body.length !== HELLO_BYTES + hello.dllSize) throw new Error("malformed hello");
+    const binary = body.subarray(HELLO_BYTES);
+    if (!/^[0-9a-f]{64}$/.test(hello.sha256)) throw new Error("invalid plugin sha256");
+    const actual = await sha256Hex(binary);
+    if (actual !== hello.sha256) throw new Error("plugin integrity error");
     if (this.channel) await this.unload();
     this.hello = hello;
     const started = performance.now();
     await upload(hello.sha256, binary);
+    for (const dep of dependencies)
+      await upload(`${hello.sha256}:${dep.name.toLowerCase()}:${dep.sha256}`, dep.bytes, `${guestDir(hello.sha256)}\\${dep.name}`);
     this.channel = freeChannel();
     this.describe = await loadInto(this.channel, hello.sha256, hello.sampleRate, hello.blockFrames);
     this.loadedAt = performance.now();
@@ -224,6 +264,7 @@ class Instance {
     this.attachStream();
     log(`${this.describe.name}: loaded on channel ${this.channel} in ${((this.loadedAt - started) / 1000).toFixed(1)} s`, "info", this.id);
     await this.reportState();
+    this.dependencyError = null;
   }
 
   /** Resets the plugin's channel, starts the relays, and lets the plugin start its stream. */

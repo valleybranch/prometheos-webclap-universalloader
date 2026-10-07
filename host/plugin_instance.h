@@ -66,6 +66,10 @@ class PluginInstance {
     int outPorts_ = 1;
 };
 
+// Classifies a Windows loader failure using the PE import probe. Direct missing
+// imports are distinguished from transitive/other loader dependency failures.
+std::string classifyPluginLoadFailure(const std::string &path, unsigned long code);
+
 // Loads `path` as whichever format it exports (GetPluginFactory: VST3,
 // VSTPluginMain/main: VST2).
 std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate, int block, std::string &error);

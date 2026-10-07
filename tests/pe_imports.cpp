@@ -18,16 +18,26 @@ static bool contains(const std::vector<std::string> &items, const char *name) {
     return false;
 }
 
-int main() {
+int main(int argc, char **argv) {
     ImportProbe probe;
     std::string error;
 
-    DeleteFileA("build\\COMPANION_DEP.DLL");
+    if (argc == 3 && std::strcmp(argv[1], "--json") == 0) {
+        if (!probePeImports(argv[2], probe, error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 2;
+        }
+        std::puts(importProbeJson(probe).c_str());
+        return 0;
+    }
+
+    DeleteFileA("build\\companion_dep.dll");
     check(probePeImports("build\\companion_plugin.dll", probe, error) &&
           contains(probe.missing, "COMPANION_DEP.DLL"),
           "reports_exact_missing_companion");
 
-    CopyFileA("build\\companion_dep.dll", "build\\COMPANION_DEP.DLL", FALSE);
+    check(CopyFileA("build\\companion_dep.fixture", "build\\companion_dep.dll", FALSE) != 0,
+          "restores_companion_fixture");
     probe = {};
     error.clear();
     check(probePeImports("build\\companion_plugin.dll", probe, error) &&
@@ -52,7 +62,31 @@ int main() {
         }
         std::fclose(src);
     }
-    if (bytes.size() > 512) bytes.resize(bytes.size() / 2);
+    // Truncate at the first import descriptor rather than at an arbitrary
+    // fraction of the file; linkers may place the complete import table in
+    // the first half of a small DLL.
+    size_t truncateAt = 0;
+    if (bytes.size() >= sizeof(IMAGE_DOS_HEADER)) {
+        const auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(bytes.data());
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew >= 0 &&
+            static_cast<size_t>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS32) <= bytes.size()) {
+            const auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS32 *>(bytes.data() + dos->e_lfanew);
+            const DWORD importRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+            const auto *section = IMAGE_FIRST_SECTION(nt);
+            for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+                const DWORD span = section[i].Misc.VirtualSize > section[i].SizeOfRawData
+                    ? section[i].Misc.VirtualSize : section[i].SizeOfRawData;
+                if (importRva >= section[i].VirtualAddress && importRva - section[i].VirtualAddress < span) {
+                    truncateAt = static_cast<size_t>(section[i].PointerToRawData) +
+                                 (importRva - section[i].VirtualAddress) +
+                                 sizeof(IMAGE_IMPORT_DESCRIPTOR) / 2;
+                    break;
+                }
+            }
+        }
+    }
+    check(truncateAt > 0 && truncateAt < bytes.size(), "locates_import_table_for_truncation");
+    if (truncateAt > 0 && truncateAt < bytes.size()) bytes.resize(truncateAt);
     FILE *dst = std::fopen("build\\companion_plugin_truncated.dll", "wb");
     if (dst) {
         std::fwrite(bytes.data(), 1, bytes.size(), dst);
@@ -62,6 +96,40 @@ int main() {
     error.clear();
     check(!probePeImports("build\\companion_plugin_truncated.dll", probe, error),
           "rejects_truncated_import_table");
+
+    // The import directory size is authoritative. A table whose declared
+    // extent cannot contain even one complete descriptor is malformed even
+    // when the surrounding section/file still has readable bytes.
+    std::vector<unsigned char> badDir = bytes;
+    src = std::fopen("build\\companion_plugin.dll", "rb");
+    if (src) {
+        std::fseek(src, 0, SEEK_END);
+        const long n = std::ftell(src);
+        std::fseek(src, 0, SEEK_SET);
+        if (n > 0) {
+            badDir.resize(static_cast<size_t>(n));
+            std::fread(badDir.data(), 1, badDir.size(), src);
+        }
+        std::fclose(src);
+    }
+    if (badDir.size() >= sizeof(IMAGE_DOS_HEADER)) {
+        auto *dos = reinterpret_cast<IMAGE_DOS_HEADER *>(badDir.data());
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew >= 0 &&
+            static_cast<size_t>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS32) <= badDir.size()) {
+            auto *nt = reinterpret_cast<IMAGE_NT_HEADERS32 *>(badDir.data() + dos->e_lfanew);
+            nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size =
+                sizeof(IMAGE_IMPORT_DESCRIPTOR) - 1;
+        }
+    }
+    dst = std::fopen("build\\companion_plugin_bad_import_size.dll", "wb");
+    if (dst) {
+        std::fwrite(badDir.data(), 1, badDir.size(), dst);
+        std::fclose(dst);
+    }
+    probe = {};
+    error.clear();
+    check(!probePeImports("build\\companion_plugin_bad_import_size.dll", probe, error),
+          "rejects_import_table_outside_declared_directory");
 
     DeleteFileA("build\\COMPANION_DEP.DLL");
     return failures ? 1 : 0;

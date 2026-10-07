@@ -4,18 +4,25 @@ import { normalizeDependencies } from "../runtime/dependencies.js";
 import { descriptor, tar } from "../wrap/bundle.js";
 
 const primary = new Uint8Array(readFileSync("build/companion_plugin.dll"));
-const dep = new Uint8Array(readFileSync("build/companion_dep.dll"));
+const dep = new Uint8Array(readFileSync("build/companion_dep.fixture"));
 const norm = await normalizeDependencies([{ name: "COMPANION_DEP.DLL", bytes: dep }]);
 assert.equal(norm.length, 1);
 assert.match(norm[0].sha256, /^[0-9a-f]{64}$/);
 await assert.rejects(() => normalizeDependencies([{ name: "../bad.dll", bytes: dep }]), /invalid companion/);
 await assert.rejects(() => normalizeDependencies([{ name: "plugin.dll", bytes: dep }]), /invalid companion/);
+await assert.rejects(() => normalizeDependencies([{ name: "C:bad.dll", bytes: dep }]), /invalid companion/);
+await assert.rejects(() => normalizeDependencies([{ name: "/bad.dll", bytes: dep }]), /invalid companion/);
+await assert.rejects(() => normalizeDependencies([{ name: "bad.txt", bytes: dep }]), /invalid companion/);
+await assert.rejects(() => normalizeDependencies([{ name: "bad.dll", bytes: new Uint8Array([1, 2, 3]) }]), /Windows binary/);
+const ordered = await normalizeDependencies([{ name: "z.dll", bytes: dep }, { name: "A.dll", bytes: dep }]);
+assert.deepEqual(ordered.map((d) => d.name), ["A.dll", "z.dll"]);
 await assert.rejects(() => normalizeDependencies([{ name: "DSP.DLL", bytes: dep }, { name: "dsp.dll", bytes: dep }]), /duplicate/);
 
 const describe = { format:"vst2", name:"Fixture", vendor:"", synth:false, inPorts:[], outPorts:[], latency:0, params:[] };
 const base = descriptor({ sha256:"a".repeat(64), describe, runtime:"/runtime", fileName:"fixture.dll" });
 const withDeps = descriptor({ sha256:"a".repeat(64), describe, runtime:"/runtime", fileName:"fixture.dll", dependencies:norm });
 assert.equal(base.includes("dependency="), false);
+assert.equal(base, descriptor({ sha256:"a".repeat(64), describe, runtime:"/runtime", fileName:"fixture.dll", dependencies:[] }));
 assert.match(withDeps, new RegExp(`dependency=COMPANION_DEP\\.DLL\\t${norm[0].sha256}\\tresources/deps/COMPANION_DEP\\.DLL`));
 const archive = tar([{name:"resources/deps/COMPANION_DEP.DLL",bytes:dep}]);
 assert.ok(archive.length > dep.length);

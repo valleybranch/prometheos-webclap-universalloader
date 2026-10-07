@@ -1,4 +1,5 @@
 #include "buzz_instance.h"
+#include "plugin_instance.h"
 #include "json.h"
 
 #include <algorithm>
@@ -100,11 +101,11 @@ void BuzzMachineInstance::destroy() {
 
 bool BuzzMachineInstance::load(const std::string &path, double r, int block, std::string &error) {
     close();
-    std::fprintf(stderr, "[buzz] LoadLibrary %s begin\n", path.c_str()); std::fflush(stderr);
+    std::fprintf(stderr, "[buzz] LoadLibraryEx %s begin\n", path.c_str()); std::fflush(stderr);
     module_ = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-    std::fprintf(stderr, "[buzz] LoadLibrary end %p\n", static_cast<void *>(module_)); std::fflush(stderr);
+    std::fprintf(stderr, "[buzz] LoadLibraryEx end %p\n", static_cast<void *>(module_)); std::fflush(stderr);
     if (!module_) {
-        error = "LoadLibrary failed for Buzz machine";
+        error = classifyPluginLoadFailure(path, GetLastError());
         return false;
     }
     getInfo_ = reinterpret_cast<GetInfoFn>(GetProcAddress(module_, "GetInfo"));

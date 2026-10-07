@@ -76,33 +76,35 @@ void PluginInstance::warmUp() {
     reset();
 }
 
+std::string classifyPluginLoadFailure(const std::string &path, unsigned long code) {
+    if (code == ERROR_MOD_NOT_FOUND) {
+        ImportProbe probe;
+        std::string probeError;
+        if (probePeImports(path, probe, probeError)) {
+            if (!probe.missing.empty()) {
+                std::string error = "missing-direct-dependency:";
+                for (size_t i = 0; i < probe.missing.size(); ++i) {
+                    if (i) error += ",";
+                    error += probe.missing[i];
+                }
+                return error;
+            }
+            std::string error = "loader-dependency-failure:error 126; direct imports=";
+            for (size_t i = 0; i < probe.imports.size(); ++i) {
+                if (i) error += ",";
+                error += probe.imports[i].name;
+            }
+            return error;
+        }
+        return "loader-dependency-failure:error 126; import probe failed: " + probeError;
+    }
+    return "loader-dependency-failure:error " + std::to_string(code);
+}
+
 std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate, int block, std::string &error) {
     HMODULE dll = LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!dll) {
-        const DWORD code = GetLastError();
-        if (code == ERROR_MOD_NOT_FOUND) {
-            ImportProbe probe;
-            std::string probeError;
-            if (probePeImports(path, probe, probeError)) {
-                if (!probe.missing.empty()) {
-                    error = "missing-direct-dependency:";
-                    for (size_t i = 0; i < probe.missing.size(); ++i) {
-                        if (i) error += ",";
-                        error += probe.missing[i];
-                    }
-                } else {
-                    error = "loader-dependency-failure:error 126; direct imports=";
-                    for (size_t i = 0; i < probe.imports.size(); ++i) {
-                        if (i) error += ",";
-                        error += probe.imports[i].name;
-                    }
-                }
-            } else {
-                error = "loader-dependency-failure:error 126; import probe failed: " + probeError;
-            }
-        } else {
-            error = "LoadLibraryEx failed, error " + std::to_string(code);
-        }
+        error = classifyPluginLoadFailure(path, GetLastError());
         return nullptr;
     }
     std::unique_ptr<PluginInstance> plugin;
@@ -115,6 +117,12 @@ std::unique_ptr<PluginInstance> loadPlugin(const std::string &path, double rate,
         return nullptr;
     }
     FreeLibrary(dll);
-    if (!plugin->load(path, rate, block, error)) return nullptr;
+    if (!plugin->load(path, rate, block, error)) {
+        if (error.rfind("missing-direct-dependency:", 0) != 0 &&
+            error.rfind("loader-dependency-failure:", 0) != 0 &&
+            error.rfind("plugin-initialization-failure:", 0) != 0)
+            error = "plugin-initialization-failure:" + error;
+        return nullptr;
+    }
     return plugin;
 }

@@ -2,18 +2,78 @@
 // for all of them, and checks each result:
 //   node tests/browser_render.mjs <base url> <screenshot dir> <plugin file>...
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 
 const [base, shots, ...plugins] = process.argv.slice(2);
+const companionPrimary = process.env.COMPANION_PRIMARY;
+const companionDep = process.env.COMPANION_DEP;
 // CHROMIUM=/path/to/chrome uses a preinstalled browser instead of Playwright's own.
 const browser = await chromium.launch({
   args: ["--autoplay-policy=no-user-gesture-required"],
   executablePath: process.env.CHROMIUM || undefined,
 });
+const observedRequests = [];
+const observedErrors = [];
+function observe(target, label) {
+  target.on("request", (request) => observedRequests.push(request.url()));
+  target.on("pageerror", (error) => {
+    observedErrors.push(String(error?.stack || error?.message || error));
+    console.log(`${label} pageerror:`, error.message);
+  });
+  target.on("console", (message) => {
+    if (message.type() === "error") observedErrors.push(message.text());
+  });
+}
 const page = await browser.newPage({ viewport: { width: 1100, height: 1000 } });
-page.on("pageerror", (e) => console.log("pageerror:", e.message));
+observe(page, "demo");
 await page.goto(`${base}/index.html`);
 await page.waitForSelector("#plugin option", { state: "attached" });
 let failures = 0;
+
+if (companionPrimary && companionDep) {
+  const primary = readFileSync(companionPrimary).toString("base64");
+  const depBytes = readFileSync(companionDep).toString("base64");
+  const depName = basename(companionDep);
+  const runtimePage = await browser.newPage();
+  observe(runtimePage, "runtime");
+  await runtimePage.goto(`${base}/runtime/index.html?boot=1`);
+  await runtimePage.waitForFunction(
+    () => window.vstloaderRuntime?.state.phase === "ready" || window.vstloaderRuntime?.state.phase === "failed",
+    null, { timeout: 15 * 60 * 1000 },
+  );
+  const result = await runtimePage.evaluate(async ({ primary, depName, depBytes }) => {
+    const decode = (value) => Uint8Array.from(atob(value), (ch) => ch.charCodeAt(0));
+    const runtime = window.vstloaderRuntime;
+    if (runtime.state.phase !== "ready") throw new Error(runtime.state.error || "vstloader runtime failed to boot");
+    const first = await runtime.probeBinary(decode(primary), []);
+    const second = await runtime.probeBinary(decode(primary), [{ name: depName, bytes: decode(depBytes) }]);
+    return { first: first.probe, second: second.probe };
+  }, { primary, depName, depBytes });
+  await runtimePage.close();
+  const missing = result.first.missing.map((name) => name.toLowerCase());
+  const ok = missing.length === 1 && missing[0] === "companion_dep.dll" && result.second.missing.length === 0;
+  failures += ok ? 0 : 1;
+  console.log(JSON.stringify({ companionProbe: true, ok, missing: result.first.missing, resolvedMissing: result.second.missing }));
+}
+
+if (process.env.BOXEDWINE_JIT_RECORD_SMOKE === "1") {
+  const before = observedRequests.length;
+  const jitPage = await browser.newPage();
+  observe(jitPage, "jit-record");
+  await jitPage.goto(`${base}/runtime/index.html?boot=1&jit-record=true`);
+  await jitPage.waitForFunction(
+    () => window.vstloaderRuntime?.state.phase === "ready" || window.vstloaderRuntime?.state.phase === "failed",
+    null, { timeout: 15 * 60 * 1000 },
+  );
+  const state = await jitPage.evaluate(() => ({ ...window.vstloaderRuntime.state }));
+  await jitPage.close();
+  const jitRequests = observedRequests.slice(before).filter((url) => /-jit-modules\.zip(?:\?|$)/.test(url));
+  const ok = state.phase === "ready" && jitRequests.length === 0;
+  failures += ok ? 0 : 1;
+  console.log(JSON.stringify({ jitRecordSmoke: true, ok, phase: state.phase, error: state.error, jitRequests }));
+}
+
 for (const plugin of plugins) {
   await page.evaluate(() => { window.vstPocResult = undefined; });
   await page.selectOption("#plugin", plugin);
@@ -32,6 +92,14 @@ for (const plugin of plugins) {
     params: (r.params || []).length,
   }));
   if (shots) await page.screenshot({ path: `${shots}/${plugin.replace(/\W+/g, "_")}.png`, fullPage: true });
+}
+const jitRequests = observedRequests.filter((url) => /-jit-modules\.zip(?:\?|$)/.test(url));
+const alertErrors = observedErrors.filter((error) => /ReferenceError:\s*alert is not defined/i.test(error));
+if (jitRequests.length || alertErrors.length) {
+  failures++;
+  console.log(JSON.stringify({ boxedwineDiagnostics: false, jitRequests, alertErrors }));
+} else {
+  console.log(JSON.stringify({ boxedwineDiagnostics: true, jitRequests: 0, alertErrors: 0 }));
 }
 await browser.close();
 process.exit(failures ? 1 : 0);

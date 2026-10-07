@@ -6,7 +6,7 @@
 // loaded. Built against a buzz-remote checkout by build.mjs, driven by run.mjs.
 import { parseWebClapArchive } from "@/engine/webclap/archive";
 import { makeWebClapBackendSource } from "@/engine/webclap/packageSource";
-import { PluginRuntimeHost } from "@/engine/webclap/runtimeHost";
+import { PluginRuntimeHost, localRuntimeUri } from "@/engine/webclap/runtimeHost";
 import type { WebClapPackage } from "@/engine/webclap/types";
 import type { FromWorkletMessage, GraphMachine, ToWorkletMessage } from "@/engine/protocol";
 import { buildSchedule } from "@/lib/schedule";
@@ -41,6 +41,7 @@ interface Engine {
   request(machineId: string, bytes: Uint8Array): Promise<Uint8Array>;
   captureData(machineId: string): Promise<Uint8Array | null>;
   errors: string[];
+  backendStatus: Map<string, { ok: boolean; message?: string }>;
 }
 
 let engine: Engine | null = null;
@@ -65,6 +66,7 @@ async function startEngine(): Promise<Engine> {
   node.connect(recorder, 0, 0);
   recorder.connect(ctx.destination);
   const errors: string[] = [];
+  const backendStatus = new Map<string, { ok: boolean; message?: string }>();
   const send = (message: ToWorkletMessage, transfer: Transferable[] = []) => node.port.postMessage(message, transfer);
   let nextId = 1;
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
@@ -84,6 +86,7 @@ async function startEngine(): Promise<Engine> {
     });
   const runtimes = new PluginRuntimeHost({
     request,
+    resolve: (uri) => localRuntimeUri(uri, location.href),
     onError: (machineId, message) => errors.push(`${machineId}: ${message}`),
     onLog: (message) => log(`runtime: ${message}`),
   });
@@ -102,12 +105,14 @@ async function startEngine(): Promise<Engine> {
       captures.delete(m.captureId);
     } else if (m.type === "machine-error") {
       errors.push(`${m.machineId}: ${m.message}`);
-    } else if (m.type === "backend-status" && !m.ok) {
-      errors.push(`backend ${m.backendId}: ${m.message}`);
+    } else if (m.type === "backend-status") {
+      backendStatus.set(m.backendId, { ok: m.ok, ...(m.message ? { message: m.message } : {}) });
+      log(`backend ${m.backendId}: ${m.ok ? "ready" : `failed: ${m.message}`}`);
+      if (!m.ok) errors.push(`backend ${m.backendId}: ${m.message}`);
     }
   };
   await ctx.resume();
-  engine = { ctx, node, recorder, runtimes, send, request, captureData, errors };
+  engine = { ctx, node, recorder, runtimes, send, request, captureData, errors, backendStatus };
   return engine;
 }
 
@@ -150,6 +155,10 @@ async function install(file: string): Promise<WebClapPackage> {
   for (const id of source.artifacts) fetched.set(id, await source.loadArtifact(id));
   e.send({ type: "backend", payload: { ...source.pack(fetched), sourceId: source.id } });
   log(`installed ${file}: ${pkg.manifest.classes[0]!.classId} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
+  await waitFor(() => {
+    const status = e.backendStatus.get("webclap");
+    return status?.ok ? true : false;
+  }, 60_000, `the WebCLAP backend for ${file} to activate`);
   return pkg;
 }
 
@@ -403,6 +412,33 @@ function watchChannel(machineId: string) {
 const results: Record<string, unknown> = {};
 const captures: Record<string, Uint8Array> = {};
 
+/** Installs a companion-bearing WebCLAP and proves buzz-remote creates its runtime instance. */
+async function companionScenario(file = "companion-test.wclap.tar.gz"): Promise<unknown> {
+  const e = await startEngine();
+  const pkg = installed.find((p) => p.source.kind === "local" && p.source.location === file) ?? (await install(file));
+  const installedClass = pkg.manifest.classes[0]!;
+  const classId = installedClass.classId;
+  const inst = machine("companion", classId, 1, 100);
+  const s = song([inst, MASTER], [edge("companion-out", "companion", "master")], []);
+  const started = performance.now();
+  sendSong(e, s);
+  await waitFor(() => runtimeInstance("companion"), 600_000, "the companion WebCLAP to load");
+  const info = runtimeInstance("companion")!;
+  const result = {
+    file,
+    classId,
+    loadSeconds: (performance.now() - started) / 1000,
+    generation: Number(info.generation),
+    channel: Number(info.channel),
+    errors: [...e.errors],
+  };
+  if (result.errors.length) throw new Error(`${file}: runtime errors: ${result.errors.join("; ")}`);
+  results.companion = result;
+  sendSong(e, song([MASTER], [], []));
+  await waitFor(() => !runtimeInstance("companion"), 60_000, "the companion instance to go");
+  return result;
+}
+
 /** The wrapped plugin as a machine playing 8-voice chords; captures for the identity check. */
 async function songScenario(file: string, seconds: number, captureSeconds: number): Promise<unknown> {
   const e = await startEngine();
@@ -573,6 +609,7 @@ function chunk(key: string, offset: number, length: number): string {
 Object.assign(window, {
   vstloaderHarness: {
     install,
+    companionScenario,
     songScenario,
     nullScenario,
     bzwScenario,

@@ -18,7 +18,7 @@ export async function normalizeDependencies(dependencies = []) {
   const out = [];
   for (const dep of dependencies) {
     const name = String(dep?.name ?? "");
-    if (!name || name !== name.replace(/^.*[\\/]/, "") || !/\.dll$/i.test(name) || /^plugin\.dll$/i.test(name))
+    if (!name || name !== name.replace(/^.*[\\/]/, "") || name.includes(":") || !/\.dll$/i.test(name) || /^plugin\.dll$/i.test(name))
       throw new Error(`invalid companion DLL name: ${name || "(empty)"}`);
     const key = name.toLowerCase();
     if (seen.has(key)) throw new Error(`duplicate companion DLL name: ${name}`);

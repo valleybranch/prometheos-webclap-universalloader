@@ -107,6 +107,10 @@ try {
     say({ identity: plugin, ...identity });
     results[`song:${plugin}`] = { ...r, identity };
   }
+  if (scenarios.has("companion")) {
+    results.companion = await page.evaluate(() => window.vstloaderHarness.companionScenario());
+    say({ companion: results.companion });
+  }
   if (scenarios.has("null")) {
     results.null = await page.evaluate((s) => window.vstloaderHarness.nullScenario(s), Number(opt["null-seconds"]));
     say({ null: results.null });

@@ -31,6 +31,7 @@
 #include "vstloader_protocol.h"
 
 #define MAX_PARAMS 1024
+#define MAX_DEPENDENCIES 64
 #define MAX_PORTS 4
 #define NAME_BYTES 256
 #define STATE_REFRESH_BLOCKS 94
@@ -55,6 +56,14 @@ typedef struct {
 } vl_param_info;
 
 typedef struct {
+    char name[NAME_BYTES];
+    char sha256[65];
+    char resource[1024];
+    uint8_t *bytes;
+    uint32_t size;
+} vl_dependency_info;
+
+typedef struct {
     char id[NAME_BYTES];
     char name[NAME_BYTES];
     char vendor[NAME_BYTES];
@@ -71,6 +80,8 @@ typedef struct {
     uint32_t blockFrames;
     uint32_t paramCount;
     vl_param_info *params;
+    uint32_t dependencyCount;
+    vl_dependency_info dependencies[MAX_DEPENDENCIES];
 } vl_descriptor;
 
 static vl_descriptor g_desc;
@@ -78,6 +89,15 @@ static char g_bundle[1024];
 static const char *g_features_synth[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, NULL};
 static const char *g_features_effect[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL};
 static clap_plugin_descriptor_t g_clap_desc;
+
+static int asciiCaseCmp(const char *a, const char *b) {
+    for (;;) {
+        unsigned char ac = (unsigned char)*a++, bc = (unsigned char)*b++;
+        if (ac >= 'A' && ac <= 'Z') ac = (unsigned char)(ac + ('a' - 'A'));
+        if (bc >= 'A' && bc <= 'Z') bc = (unsigned char)(bc + ('a' - 'A'));
+        if (ac != bc || !ac || !bc) return (int)ac - (int)bc;
+    }
+}
 
 static void copyField(char *dst, size_t cap, const char *src) {
     size_t n = strlen(src);
@@ -94,6 +114,7 @@ static bool readDescriptor(const char *bundle) {
     if (!f) return false;
     memset(&g_desc, 0, sizeof g_desc);
     g_desc.params = calloc(MAX_PARAMS, sizeof(vl_param_info));
+    if (!g_desc.params) { fclose(f); return false; }
     g_desc.outPorts = 1;
     g_desc.bridgeLatency = 2048;
     g_desc.blockFrames = 256;
@@ -122,6 +143,25 @@ static bool readDescriptor(const char *bundle) {
         else if (!strcmp(key, "latency")) g_desc.pluginLatency = (uint32_t)atoi(value);
         else if (!strcmp(key, "bridgeLatency")) g_desc.bridgeLatency = (uint32_t)atoi(value);
         else if (!strcmp(key, "block")) g_desc.blockFrames = (uint32_t)atoi(value);
+        else if (!strcmp(key, "dependency")) {
+            if (g_desc.dependencyCount >= MAX_DEPENDENCIES) goto malformed;
+            char *tab1 = strchr(value, '\t');
+            char *tab2 = tab1 ? strchr(tab1 + 1, '\t') : NULL;
+            if (!tab1 || !tab2) goto malformed;
+            *tab1 = 0; *tab2 = 0;
+            if (!value[0] || strchr(value, '/') || strchr(value, '\\') || strchr(value, ':') ||
+                strlen(value) < 4 || asciiCaseCmp(value + strlen(value) - 4, ".dll") || !asciiCaseCmp(value, "plugin.dll") ||
+                strlen(tab1 + 1) != 64 || strncmp(tab2 + 1, "resources/deps/", 15) ||
+                asciiCaseCmp(tab2 + 1 + 15, value)) goto malformed;
+            for (const char *p = tab1 + 1; *p; ++p)
+                if (!( (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') )) goto malformed;
+            for (uint32_t i = 0; i < g_desc.dependencyCount; ++i)
+                if (!asciiCaseCmp(g_desc.dependencies[i].name, value)) goto malformed;
+            vl_dependency_info *d = &g_desc.dependencies[g_desc.dependencyCount++];
+            copyField(d->name, sizeof d->name, value);
+            copyField(d->sha256, sizeof d->sha256, tab1 + 1);
+            copyField(d->resource, sizeof d->resource, tab2 + 1);
+        }
         else if (!strcmp(key, "param") && g_desc.paramCount < MAX_PARAMS) {
             vl_param_info *p = &g_desc.params[g_desc.paramCount++];
             char *tab1 = strchr(value, '\t');
@@ -134,12 +174,42 @@ static bool readDescriptor(const char *bundle) {
             if (!(p->defaultValue >= 0.0 && p->defaultValue <= 1.0)) p->defaultValue = 0.0;
         }
     }
-    fclose(f);
     if (g_desc.inPorts > MAX_PORTS) g_desc.inPorts = MAX_PORTS;
     if (g_desc.outPorts > MAX_PORTS) g_desc.outPorts = MAX_PORTS;
     if (g_desc.outPorts < 1) g_desc.outPorts = 1;
     if (g_desc.blockFrames == 0 || g_desc.blockFrames > VSTB_RING_FRAMES / 8) g_desc.blockFrames = 256;
-    return g_desc.id[0] != 0 && g_desc.name[0] != 0;
+    if (g_desc.id[0] != 0 && g_desc.name[0] != 0) { fclose(f); return true; }
+malformed:
+    fclose(f);
+    free(g_desc.params);
+    g_desc.params = NULL;
+    return false;
+}
+
+static void freeDependencies(void) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        free(g_desc.dependencies[i].bytes);
+        g_desc.dependencies[i].bytes = NULL;
+        g_desc.dependencies[i].size = 0;
+    }
+}
+
+static bool loadDependencies(const char *bundle) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        vl_dependency_info *d = &g_desc.dependencies[i];
+        char path[2200];
+        snprintf(path, sizeof path, "%s/%s", bundle, d->resource);
+        FILE *f = fopen(path, "rb");
+        if (!f) { freeDependencies(); return false; }
+        if (fseek(f, 0, SEEK_END)) { fclose(f); freeDependencies(); return false; }
+        long size = ftell(f);
+        if (size <= 0 || (uint64_t)size > UINT32_MAX || fseek(f, 0, SEEK_SET)) { fclose(f); freeDependencies(); return false; }
+        d->size = (uint32_t)size;
+        d->bytes = malloc(d->size);
+        if (!d->bytes || fread(d->bytes, 1, d->size, f) != d->size) { fclose(f); freeDependencies(); return false; }
+        fclose(f);
+    }
+    return true;
 }
 
 /* ---- channels: VSTB_MAX_CHANNELS of them in this module's memory --------------- */
@@ -222,6 +292,31 @@ static bool sendFrame(vl_plugin *v, uint32_t op, const void *a, uint32_t aSize, 
     return ok;
 }
 
+static bool sendDependencies(vl_plugin *v) {
+    for (uint32_t i = 0; i < g_desc.dependencyCount; ++i) {
+        const vl_dependency_info *d = &g_desc.dependencies[i];
+        const uint16_t nameBytes = (uint16_t)strlen(d->name);
+        const uint32_t headerBytes = 40;
+        const uint32_t bodySize = headerBytes + nameBytes + d->size;
+        uint8_t *body = malloc(bodySize);
+        if (!body) return false;
+        memset(body, 0, headerBytes);
+        memcpy(body, &nameBytes, 2);
+        memcpy(body + 4, &d->size, 4);
+        for (uint32_t j = 0; j < 32; ++j) {
+            unsigned value = 0;
+            if (sscanf(d->sha256 + j * 2, "%2x", &value) != 1) { free(body); return false; }
+            body[8 + j] = (uint8_t)value;
+        }
+        memcpy(body + headerBytes, d->name, nameBytes);
+        memcpy(body + headerBytes + nameBytes, d->bytes, d->size);
+        bool ok = sendFrame(v, VL_DEPENDENCY, body, bodySize, NULL, 0);
+        free(body);
+        if (!ok) return false;
+    }
+    return true;
+}
+
 /* Reads resources/<dll> and hands it, with the channel's whereabouts, to the runtime. */
 static void sendHello(vl_plugin *v) {
     if (v->helloSent || !v->hostRuntime || v->channel < 0) return;
@@ -255,6 +350,11 @@ static void sendHello(vl_plugin *v) {
     hello.outPorts = g_desc.outPorts;
     hello.dllSize = (uint32_t)size;
     memcpy(hello.sha256, g_desc.sha256, 64);
+    if (!sendDependencies(v)) {
+        free(dll);
+        logf_(v, CLAP_LOG_ERROR, "vstloader: cannot send companion dependencies");
+        return;
+    }
     v->helloSent = sendFrame(v, VL_HELLO, &hello, sizeof hello, dll, (uint32_t)size);
     free(dll);
     if (v->helloSent && v->stateToSend && v->state) {
@@ -876,6 +976,7 @@ static const clap_plugin_factory_t g_factory = {get_plugin_count, get_plugin_des
 static bool entry_init(const char *plugin_path) {
     copyField(g_bundle, sizeof g_bundle, plugin_path);
     if (!readDescriptor(plugin_path)) return false;
+    if (!loadDependencies(plugin_path)) return false;
     g_clap_desc.clap_version = (clap_version_t)CLAP_VERSION_INIT;
     g_clap_desc.id = g_desc.id;
     g_clap_desc.name = g_desc.name;
@@ -889,7 +990,11 @@ static bool entry_init(const char *plugin_path) {
     return true;
 }
 
-static void entry_deinit(void) {}
+static void entry_deinit(void) {
+    freeDependencies();
+    free(g_desc.params);
+    g_desc.params = NULL;
+}
 
 static const void *entry_get_factory(const char *factory_id) {
     return !strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) ? &g_factory : NULL;

@@ -141,12 +141,19 @@ bool probePeImports(const std::string &modulePath, ImportProbe &out, std::string
     const auto &dir = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     if (!dir.VirtualAddress || !dir.Size) return true;
 
+    if (dir.Size < sizeof(IMAGE_IMPORT_DESCRIPTOR)) {
+        error = "malformed PE import directory size";
+        return false;
+    }
+
     std::map<std::string, ImportResolution> found;
     const std::string baseDir = moduleDir(modulePath);
-    for (size_t index = 0;; ++index) {
+    bool terminated = false;
+    for (size_t index = 0; index <= dir.Size / sizeof(IMAGE_IMPORT_DESCRIPTOR); ++index) {
+        const unsigned long long relative = static_cast<unsigned long long>(index) * sizeof(IMAGE_IMPORT_DESCRIPTOR);
+        if (relative + sizeof(IMAGE_IMPORT_DESCRIPTOR) > dir.Size) break;
         size_t off = 0;
-        const unsigned long long rva64 = static_cast<unsigned long long>(dir.VirtualAddress) +
-                                         index * sizeof(IMAGE_IMPORT_DESCRIPTOR);
+        const unsigned long long rva64 = static_cast<unsigned long long>(dir.VirtualAddress) + relative;
         if (rva64 > 0xffffffffULL ||
             !rvaToOffset(static_cast<DWORD>(rva64), sizeof(IMAGE_IMPORT_DESCRIPTOR), nt, sections, data.size(), off, error))
             return false;
@@ -155,7 +162,7 @@ bool probePeImports(const std::string &modulePath, ImportProbe &out, std::string
             error = "truncated PE import table";
             return false;
         }
-        if (!desc.OriginalFirstThunk && !desc.FirstThunk && !desc.Name) break;
+        if (!desc.OriginalFirstThunk && !desc.FirstThunk && !desc.Name) { terminated = true; break; }
         if (!desc.Name) {
             error = "malformed PE import descriptor";
             return false;
@@ -181,6 +188,10 @@ bool probePeImports(const std::string &modulePath, ImportProbe &out, std::string
         }
         const std::string key = lower(name);
         if (!found.count(key)) found.emplace(key, item);
+    }
+    if (!terminated) {
+        error = "unterminated PE import directory";
+        return false;
     }
 
     for (const auto &entry : found) {

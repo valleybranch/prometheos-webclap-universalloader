@@ -158,6 +158,37 @@ jobs:
           npm install --no-save --no-package-lock "playwright@${PLAYWRIGHT_VERSION}"
           npx playwright install --with-deps chromium
 
+      - name: Companion DLL browser and installed bundle gate
+        env:
+          RUNTIME_URL: ${{ inputs.runtime || vars.VSTLOADER_RUNTIME_URL || env.DEFAULT_RUNTIME_URL }}
+          BOXEDWINE_JIT_RECORD_SMOKE: "1"
+        run: |
+          python3 serve.py 8080 dist-mt > /tmp/companion-serve.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          COMPANION_PRIMARY=build/companion_plugin.dll COMPANION_DEP=build/companion_dep.dll node tests/browser_render.mjs http://127.0.0.1:8080 ""
+          mkdir -p build/wraps
+          node wrap/wrap.mjs build/companion_plugin.dll --dep build/companion_dep.dll --site http://127.0.0.1:8080 --runtime "$RUNTIME_URL" --out build/wraps/companion-test.wclap.tar.gz
+          tar xzOf build/wraps/companion-test.wclap.tar.gz resources/vstloader.txt | grep '^dependency=companion_dep[.]dll'
+          tar tzf build/wraps/companion-test.wclap.tar.gz | grep -Fx resources/deps/companion_dep.dll
+
+      - name: Installed companion WebCLAP gate in buzz-remote
+        run: |
+          git clone https://github.com/dahlgrenmartin/prometheos-apps.git /tmp/prometheos-apps
+          git -C /tmp/prometheos-apps checkout 0372f92028f2ab46114acb149f1e3ef9a6174447
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm --version
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p /tmp/buzz-harness-deps
+          cd /tmp/buzz-harness-deps
+          printf '%s\n' '{"private":true}' > package.json
+          pnpm add esbuild@0.25.10 fflate@0.8.3 fft.js@4.0.4 zod@3.25.76
+          cd "$GITHUB_WORKSPACE"
+          node tests/buzz-remote/build.mjs --buzz /tmp/prometheos-apps/apps/buzz-remote --deps /tmp/buzz-harness-deps --site dist-mt --plugins build/wraps
+          node tests/buzz-remote/run.mjs --scenarios companion --out build/companion-buzz-remote
+
       - name: Stage verified Buzz fixture for browser wrapper
         run: |
           # wrap.mjs reads the plugin from the checkout; the served site is only
