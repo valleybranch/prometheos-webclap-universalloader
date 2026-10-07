@@ -30,6 +30,7 @@ on:
       - '.github/workflows/release.yml'
       - 'build.sh'
       - 'host/**'
+      - 'tests/**'
       - 'patches/**'
       - 'runtime/**'
       - 'wclap/**'
@@ -109,6 +110,28 @@ jobs:
           rms = math.sqrt(sum(x*x for x in finite) / max(1, len(finite)))
           nonzero = sum(abs(x) > 1e-7 for x in finite)
           result = {'samples': len(samples), 'finite': len(finite), 'peak': peak, 'rms': rms, 'nonzero': nonzero}
+          print(json.dumps(result))
+          assert len(finite) == len(samples), result
+          assert peak > 1e-6 and nonzero >= 100, result
+          PY
+
+      - name: Require Buzz defaults before first Work
+        run: |
+          python3 tests/make_buzz_startup_capture.py /tmp/buzz-startup.capture
+          HOST_WIN="Z:${PWD//\//\\}\\build\\vsthost.exe"
+          DLL_WIN="Z:${PWD//\//\\}\\build\\buzz_startup.dll"
+          timeout 20s env WINEARCH=win32 WINEPREFIX="$RUNNER_TEMP/wine32-prefix" WINEDEBUG=-all \
+            /usr/lib/wine/wine "$HOST_WIN" --replay "$DLL_WIN" \
+            'Z:\\tmp\\buzz-startup.capture' 'Z:\\tmp\\buzz-startup.f32'
+          python3 - <<'PY'
+          import json, math, struct
+          p = '/tmp/buzz-startup.f32'
+          raw = open(p, 'rb').read()
+          samples = struct.unpack('<%df' % (len(raw)//4), raw)
+          finite = [x for x in samples if math.isfinite(x)]
+          peak = max((abs(x) for x in finite), default=0.0)
+          nonzero = sum(abs(x) > 1e-7 for x in finite)
+          result = {'samples': len(samples), 'finite': len(finite), 'peak': peak, 'nonzero': nonzero}
           print(json.dumps(result))
           assert len(finite) == len(samples), result
           assert peak > 1e-6 and nonzero >= 100, result

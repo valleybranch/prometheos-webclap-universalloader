@@ -90,7 +90,24 @@ bool BuzzMachineInstance::create(std::string &error) {
     machineCall<void>(machine_, 7);
     std::fprintf(stderr, "[buzz] AttributesChanged end; SetNumTracks(%d) begin\n", tracks_); std::fflush(stderr);
     machineCall<void>(machine_, 9, tracks_);
-    std::fprintf(stderr, "[buzz] SetNumTracks end\n"); std::fflush(stderr);
+    std::fprintf(stderr, "[buzz] SetNumTracks end; initial defaults begin\n"); std::fflush(stderr);
+
+    // Buzz presents global parameter defaults on the first tick. Legacy
+    // machines commonly initialize derived DSP state there and may enter Work
+    // before any user parameter event arrives.
+    if (machine_->GlobalVals) {
+        auto *g = static_cast<uint8_t *>(machine_->GlobalVals);
+        size_t off = 0;
+        for (int i = 0; i < info_->numGlobalParameters; ++i) {
+            const auto &p = *info_->Parameters[i];
+            g[off] = static_cast<uint8_t>(p.DefValue & 0xff);
+            if (paramSize(p) == 2) g[off + 1] = static_cast<uint8_t>((p.DefValue >> 8) & 0xff);
+            off += paramSize(p);
+        }
+    }
+    machineCall<void>(machine_, 2);
+    clearNoValues();
+    std::fprintf(stderr, "[buzz] initial defaults end\n"); std::fflush(stderr);
     return true;
 }
 
