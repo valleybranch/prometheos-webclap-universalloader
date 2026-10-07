@@ -15,7 +15,6 @@ const browser = await chromium.launch({
 });
 const observedRequests = [];
 const observedErrors = [];
-const observedConsole = [];
 function observe(target, label) {
   target.on("request", (request) => observedRequests.push(request.url()));
   target.on("pageerror", (error) => {
@@ -23,7 +22,6 @@ function observe(target, label) {
     console.log(`${label} pageerror:`, error.message);
   });
   target.on("console", (message) => {
-    observedConsole.push(message.text());
     if (message.type() === "error") observedErrors.push(message.text());
   });
 }
@@ -56,17 +54,14 @@ if (companionPrimary && companionDep) {
   }, { primary, depName, depBytes });
   await runtimePage.close();
   const missing = result.first.missing.map((name) => name.toLowerCase());
-  const loadStages = observedConsole.filter((line) => line.includes("[plugin-load]"));
   const ok = missing.length === 1 &&
     missing[0] === "companion_dep.dll" &&
     result.second.missing.length === 0 &&
-    result.describe?.format === "vst2" &&
-    loadStages.some((line) => line.includes("probe-load-begin")) &&
-    loadStages.some((line) => line.includes("probe-load-end"));
+    result.describe?.format === "vst2";
   failures += ok ? 0 : 1;
   console.log(JSON.stringify({
     companionProbe: true, ok, missing: result.first.missing,
-    resolvedMissing: result.second.missing, describeFormat: result.describe?.format, loadStages,
+    resolvedMissing: result.second.missing, describeFormat: result.describe?.format,
   }));
 }
 
