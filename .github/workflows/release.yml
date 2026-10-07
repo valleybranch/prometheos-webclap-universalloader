@@ -30,6 +30,7 @@ on:
       - '.github/workflows/release.yml'
       - 'build.sh'
       - 'host/**'
+      - 'tests/**'
       - 'patches/**'
       - 'runtime/**'
       - 'wclap/**'
